@@ -1,0 +1,16 @@
+{
+  "name": "@banto/theme",
+  "version": "0.1.0",
+  "description": "Banto default theme: CSS variables with light/dark modes",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./css": "./src/css/banto.css"
+  },
+  "scripts": {
+    "check": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.0"
+  }
+}

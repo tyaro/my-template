@@ -1,0 +1,73 @@
+/*
+ * Banto theme — CSS variable layer (spec §9).
+ * Components read only these variables; apps override them freely.
+ * The resolved theme is set as data-theme="light" | "dark" on <html>
+ * by applyTheme() from @banto/theme.
+ */
+
+:root {
+  /* Surfaces */
+  --banto-bg: #f6f7f9;
+  --banto-surface: #ffffff;
+  --banto-surface-raised: #ffffff;
+  --banto-border: #d9dde3;
+
+  /* Text */
+  --banto-text: #1a1d21;
+  --banto-text-muted: #5c6470;
+  --banto-text-inverse: #ffffff;
+
+  /* Brand / state */
+  --banto-primary: #2563eb;
+  --banto-primary-hover: #1d4ed8;
+  --banto-danger: #dc2626;
+  --banto-warning: #d97706;
+  --banto-success: #16a34a;
+
+  /* Focus */
+  --banto-focus-ring: 0 0 0 2px color-mix(in srgb, var(--banto-primary) 45%, transparent);
+
+  /* Layout */
+  --banto-radius: 6px;
+  --banto-shell-sidebar-width: 240px;
+  --banto-shell-sidebar-width-collapsed: 56px;
+  --banto-shell-header-height: 48px;
+
+  /* Grid (consumed by @banto/grid-svelte from M1) */
+  --banto-grid-row-height: 36px;
+  --banto-grid-header-height: 40px;
+
+  /* Typography */
+  --banto-font-family: system-ui, -apple-system, "Segoe UI", "Hiragino Sans",
+    "Noto Sans JP", sans-serif;
+  --banto-font-size: 14px;
+}
+
+[data-theme="dark"] {
+  --banto-bg: #15171b;
+  --banto-surface: #1e2127;
+  --banto-surface-raised: #262a31;
+  --banto-border: #363b44;
+
+  --banto-text: #e8eaed;
+  --banto-text-muted: #9aa3af;
+  --banto-text-inverse: #1a1d21;
+
+  --banto-primary: #3b82f6;
+  --banto-primary-hover: #60a5fa;
+  --banto-danger: #ef4444;
+  --banto-warning: #f59e0b;
+  --banto-success: #22c55e;
+}
+
+html {
+  background: var(--banto-bg);
+  color: var(--banto-text);
+  font-family: var(--banto-font-family);
+  font-size: var(--banto-font-size);
+  color-scheme: light;
+}
+
+html[data-theme="dark"] {
+  color-scheme: dark;
+}

@@ -1,0 +1,66 @@
+<script lang="ts">
+	import { goto } from '$app/navigation';
+	import { page } from '$app/state';
+	import { logoutStub } from '$lib/auth';
+	import { pageTitle } from '$lib/navigation';
+	import { settings } from '$lib/settings.svelte';
+
+	function logout() {
+		logoutStub();
+		goto('/login');
+	}
+</script>
+
+<header>
+	<button
+		type="button"
+		class="icon-button"
+		onclick={() => settings.toggleSidebar()}
+		aria-label="サイドバーの切り替え"
+	>
+		☰
+	</button>
+
+	<h1>{pageTitle(page.url.pathname)}</h1>
+
+	<div class="spacer"></div>
+
+	<button type="button" class="icon-button" onclick={logout}>ログアウト</button>
+</header>
+
+<style>
+	header {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		height: var(--banto-shell-header-height);
+		padding: 0 1rem;
+		background: var(--banto-surface);
+		border-bottom: 1px solid var(--banto-border);
+	}
+
+	h1 {
+		margin: 0;
+		font-size: 1rem;
+		font-weight: 600;
+	}
+
+	.spacer {
+		flex: 1;
+	}
+
+	.icon-button {
+		border: none;
+		background: none;
+		color: var(--banto-text-muted);
+		padding: 0.35rem 0.5rem;
+		border-radius: var(--banto-radius);
+		cursor: pointer;
+		font-size: 0.875rem;
+	}
+
+	.icon-button:hover {
+		background: color-mix(in srgb, var(--banto-primary) 8%, transparent);
+		color: var(--banto-text);
+	}
+</style>
