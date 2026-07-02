@@ -1,79 +1,87 @@
 <script lang="ts">
-	import { sampleItems } from './data';
+	import { BantoGrid, type GridColumn } from '@banto/grid-svelte';
+	import { goto } from '$app/navigation';
+	import { items, type Item } from './data';
+
+	const columns: GridColumn<Item>[] = [
+		{
+			id: 'id',
+			header: 'ID',
+			accessor: 'id',
+			width: 80,
+			align: 'right',
+			filterable: true,
+			filterType: 'number'
+		},
+		{
+			id: 'name',
+			header: '商品名',
+			accessor: 'name',
+			width: 260,
+			filterable: true,
+			filterType: 'text'
+		},
+		{
+			id: 'price',
+			header: '価格',
+			accessor: 'price',
+			width: 120,
+			align: 'right',
+			filterable: true,
+			filterType: 'number',
+			format: (value) => `¥${(value as number).toLocaleString()}`
+		},
+		{
+			id: 'stock',
+			header: '在庫',
+			accessor: 'stock',
+			width: 100,
+			align: 'right',
+			filterable: true,
+			filterType: 'number'
+		},
+		{
+			id: 'updatedAt',
+			header: '更新日',
+			accessor: 'updatedAt',
+			width: 140
+		}
+	];
+
+	function handleRowClick(item: Item) {
+		goto(`/items/${item.id}`);
+	}
 </script>
 
-<p class="note">
-	M0スケルトン: 固定サンプルデータの素朴なテーブルです。M1で @banto/grid-svelte
-	（仮想スクロール・ソート/フィルタ）に、M2でDataProvider経由のRust連携に置き換わります。
-</p>
+<div class="page">
+	<p class="note">
+		M1グリッドデモ: @banto/grid-svelte（仮想スクロール・複数列ソート・列フィルタ・列リサイズ/並び替え）で
+		{items.length.toLocaleString()}件のサンプルデータを表示しています。M2でDataProvider経由のRust連携に
+		置き換わります。
+	</p>
 
-<div class="table-wrap">
-	<table>
-		<thead>
-			<tr>
-				<th>ID</th>
-				<th>商品名</th>
-				<th class="num">価格</th>
-				<th class="num">在庫</th>
-				<th>更新日</th>
-			</tr>
-		</thead>
-		<tbody>
-			{#each sampleItems as item (item.id)}
-				<tr>
-					<td>{item.id}</td>
-					<td><a href="/items/{item.id}">{item.name}</a></td>
-					<td class="num">¥{item.price.toLocaleString()}</td>
-					<td class="num">{item.stock}</td>
-					<td>{item.updatedAt}</td>
-				</tr>
-			{/each}
-		</tbody>
-	</table>
+	<div class="grid-wrap">
+		<BantoGrid rows={items} {columns} getRowId={(item) => item.id} onRowClick={handleRowClick} />
+	</div>
 </div>
 
 <style>
+	.page {
+		height: calc(100vh - var(--banto-shell-header-height) - 2.5rem);
+		display: flex;
+		flex-direction: column;
+		min-height: 0;
+	}
+
 	.note {
-		margin: 0 0 1rem;
+		flex: 0 0 auto;
+		margin: 0 0 0.75rem;
 		color: var(--banto-text-muted);
 		font-size: 0.8rem;
 	}
 
-	.table-wrap {
-		background: var(--banto-surface);
-		border: 1px solid var(--banto-border);
-		border-radius: calc(var(--banto-radius) * 2);
-		overflow-x: auto;
-	}
-
-	table {
-		width: 100%;
-		border-collapse: collapse;
-		font-size: 0.875rem;
-	}
-
-	th,
-	td {
-		text-align: left;
-		padding: 0.6rem 0.9rem;
-		border-bottom: 1px solid var(--banto-border);
-	}
-
-	tbody tr:last-child td {
-		border-bottom: none;
-	}
-
-	th {
-		color: var(--banto-text-muted);
-		font-weight: 600;
-		height: var(--banto-grid-header-height);
-	}
-
-	.num {
-		text-align: right;
-	}
-
-	a {
-		color: var(--banto-primary);
+	.grid-wrap {
+		flex: 1;
+		min-height: 0;
 	}
 </style>

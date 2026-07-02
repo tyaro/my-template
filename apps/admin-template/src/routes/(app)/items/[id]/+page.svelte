@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { page } from '$app/state';
-	import { sampleItems } from '../data';
+	import { findItem } from '../data';
 
-	const item = $derived(sampleItems.find((entry) => String(entry.id) === page.params.id));
+	const item = $derived(page.params.id ? findItem(page.params.id) : undefined);
 </script>
 
 <p class="note">
