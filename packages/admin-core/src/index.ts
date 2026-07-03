@@ -2,7 +2,8 @@
  * Public entry point for @banto/admin-core (spec §3).
  * M2 Phase A scope: resource registry, DataProvider/AuthProvider contracts,
  * list/form composables, invalidate bus, InMemoryDataProvider.
- * TauriDataProvider lands in Phase B.
+ * M2 Phase B adds createTauriDataProvider/createTauriAuthProvider, backed
+ * by the Rust service layer (spec §10).
  */
 export type {
 	SortDirection,
@@ -39,3 +40,5 @@ export {
 	type InMemorySeed,
 	type InMemoryDataProviderOptions
 } from './providers/inMemory';
+
+export { createTauriDataProvider, createTauriAuthProvider, type TauriInvokeOptions } from './providers/tauri';

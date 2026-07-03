@@ -77,8 +77,8 @@
 	</div>
 
 	<p class="note">
-		M2デモ: InMemoryDataProvider経由（createListResource）で{list.totalCount.toLocaleString()}件のサンプルデータを
-		表示しています。Phase BでTauri/Rustに接続します。
+		{list.totalCount.toLocaleString()}件のデータを表示しています。Tauri実行時はRust+SQLite（1,000件シード）、ブラウザ実行時はInMemoryDataProvider（10,000件）を使用（M2
+		Phase B）。
 	</p>
 
 	{#if list.loading && list.rows.length === 0}

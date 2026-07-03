@@ -1,0 +1,17 @@
+[package]
+name = "admin-template-core"
+description = "admin-template domain/service layer (spec §10): shared by Tauri commands now, REST in M6"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+banto-core = { workspace = true }
+banto-storage = { workspace = true, features = ["sqlite"] }
+sqlx = { workspace = true, features = ["runtime-tokio", "sqlite", "macros", "migrate"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt", "macros"] }

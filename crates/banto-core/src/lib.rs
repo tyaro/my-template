@@ -8,5 +8,7 @@
 pub mod error;
 pub mod params;
 
-pub use error::BantoError;
-pub use params::{FilterOp, FilterState, ListParams, ListResult, Pagination, SortDirection, SortState};
+pub use error::{BantoError, ErrorBody, FieldError};
+pub use params::{
+    FilterOp, FilterState, ListParams, ListResult, Pagination, SortDirection, SortState,
+};

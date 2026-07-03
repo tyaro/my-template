@@ -27,7 +27,7 @@
 <div class="page">
 	<form onsubmit={submit}>
 		<h1>🏮 Banto</h1>
-		<p class="note">デモ認証: admin / admin でログイン（M2、Phase BでRust実装に接続）</p>
+		<p class="note">admin / admin でログイン（Tauri時はRustコマンド、ブラウザ時はデモ実装）</p>
 
 		<label>
 			ユーザー名
