@@ -37,6 +37,19 @@
   --banto-grid-row-height: 36px;
   --banto-grid-header-height: 40px;
 
+  /* Charts (consumed by @banto/charts from M4, spec §6). Categorical series
+     take slots 1..8 in fixed order by series index - never cycle/reassign. */
+  --banto-chart-1: #2a78d6;
+  --banto-chart-2: #1baf7a;
+  --banto-chart-3: #eda100;
+  --banto-chart-4: #008300;
+  --banto-chart-5: #4a3aa7;
+  --banto-chart-6: #e34948;
+  --banto-chart-7: #e87ba4;
+  --banto-chart-8: #eb6834;
+  --banto-chart-grid: #e1e0d9;
+  --banto-chart-axis: #c3c2b7;
+
   /* Typography */
   --banto-font-family: system-ui, -apple-system, "Segoe UI", "Hiragino Sans",
     "Noto Sans JP", sans-serif;
@@ -58,6 +71,17 @@
   --banto-danger: #ef4444;
   --banto-warning: #f59e0b;
   --banto-success: #22c55e;
+
+  --banto-chart-1: #3987e5;
+  --banto-chart-2: #199e70;
+  --banto-chart-3: #c98500;
+  --banto-chart-4: #008300;
+  --banto-chart-5: #9085e9;
+  --banto-chart-6: #e66767;
+  --banto-chart-7: #d55181;
+  --banto-chart-8: #d95926;
+  --banto-chart-grid: #2c2c2a;
+  --banto-chart-axis: #383835;
 }
 
 html {
