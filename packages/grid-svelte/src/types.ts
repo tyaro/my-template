@@ -35,6 +35,9 @@ export interface FilterState {
 
 export type FilterType = 'text' | 'number';
 
+/** Built-in per-group aggregate functions for a column (spec §4.3, client mode only). */
+export type AggregateKind = 'sum' | 'avg' | 'count';
+
 /** Built-in cell editor kinds (spec §4.5). */
 export type CellEditorType = 'text' | 'number' | 'date' | 'select' | 'checkbox';
 
@@ -102,16 +105,35 @@ export interface GridColumn<TRow> {
 	 * edited.
 	 */
 	cell?: (row: TRow) => { text: string; href?: string };
+	/**
+	 * Per-group aggregate shown as a chip in the group header row (spec
+	 * §4.3, client mode grouping only - a later milestone wires the server
+	 * mode SQL GROUP BY equivalent). 'sum'/'avg' coerce each row's value to a
+	 * number (skipping non-numeric values); 'count' is the group's row
+	 * count regardless of this column's values; the function form receives
+	 * every row's raw accessor value plus the row itself and returns the
+	 * already-formatted display string.
+	 */
+	aggregate?: AggregateKind | ((values: unknown[], rows: TRow[]) => string);
+	/**
+	 * Whether this column may be offered as a group-by candidate (spec
+	 * §4.3). Default true. Purely informational: BantoGrid itself does not
+	 * read this flag anywhere - it exists only for the caller's own group-by
+	 * picker UI (e.g. a <select>) to filter its option list against.
+	 */
+	groupable?: boolean;
 }
 
 /** Resolved defaults applied on top of a user-supplied GridColumn. */
 export const DEFAULT_COLUMN_WIDTH = 150;
 export const DEFAULT_MIN_WIDTH = 60;
 
-/** Shape persisted by GridState.serialize() (spec §4.4). */
+/** Shape persisted by GridState.serialize() (spec §4.4, §4.3). */
 export interface SerializedGridState {
 	sort: SortState[];
 	filters: FilterState[];
 	order: string[];
 	widths: Record<string, number>;
+	/** Client-mode group-by column id, or null (spec §4.3). `collapsedGroups` is deliberately NOT persisted - it's ephemeral UI state. */
+	groupBy: string | null;
 }

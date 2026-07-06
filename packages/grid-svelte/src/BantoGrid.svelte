@@ -15,6 +15,7 @@
 	import {
 		DEFAULT_COLUMN_WIDTH,
 		type CellEdit,
+		type CellRange,
 		type FilterState,
 		type GridColumn,
 		type SortState
@@ -26,6 +27,7 @@
 	import { computeWindow } from './core/virtual';
 	import { parseCellInput, parseTsv, rangeToTsv, resolveSelectValue } from './core/clipboard';
 	import { prepareCommit } from './core/edit';
+	import { buildGroupedView, type FlatEntry } from './core/group';
 	import HeaderCell from './HeaderCell.svelte';
 
 	interface Props {
@@ -42,7 +44,14 @@
 		state?: GridState<TRow>;
 		getRowId: (row: TRow) => string | number;
 		rowHeight?: number;
-		/** Default 'client'. */
+		/**
+		 * Default 'client'. Row grouping (spec §4.3, `state.groupBy`/
+		 * `setGroupBy`/`toggleGroup`) only runs in 'client' mode - a later
+		 * milestone adds the server-mode SQL GROUP BY equivalent. If
+		 * `state.groupBy` is set while `mode === 'server'`, it is ignored
+		 * (rows render as a flat list) and a single `console.warn` fires as a
+		 * dev aid.
+		 */
 		mode?: 'client' | 'server';
 		/** Server mode only: total row count backing the virtual scroller (NOT `rows.length`, which is just the sparse array's current extent). */
 		totalRows?: number;
@@ -136,11 +145,42 @@
 		mode === 'server' ? rows : sortRows(filterRows(rows as TRow[], gridState.filters, columns), gridState.sort, columns)
 	);
 
+	// Client-mode-only row grouping (spec §4.3): filter -> sort -> group ->
+	// virtualize. `null` (not grouped, or server mode - see the console.warn
+	// effect below) means the ungrouped `sorted`/`rows` array drives
+	// rendering exactly as before M5 Phase B.
+	const groupedEntries: FlatEntry<TRow>[] | null = $derived(
+		mode === 'client' && gridState.groupBy
+			? buildGroupedView(sorted as TRow[], columns, gridState.groupBy, (key) => gridState.collapsedGroups.has(key))
+			: null
+	);
+
+	// Dev aid (spec §4.3): grouping has no server-mode equivalent yet, so a
+	// `groupBy` set while `mode === 'server'` is silently ignored for
+	// rendering - warn once per "entering" the misconfigured state (not on
+	// every reactive recompute) so it doesn't spam the console.
+	let warnedServerGroupBy = false;
+	$effect(() => {
+		if (mode === 'server' && gridState.groupBy) {
+			if (!warnedServerGroupBy) {
+				warnedServerGroupBy = true;
+				console.warn(
+					'[BantoGrid] state.groupBy is ignored in server mode (spec §4.3: grouping has no server-mode equivalent yet).'
+				);
+			}
+		} else {
+			warnedServerGroupBy = false;
+		}
+	});
+
 	// Row count driving the virtual scroller: server mode sizes from
 	// `totalRows` (the sparse array's current `.length` is just how much of
-	// it has been fetched so far, not the true total), client mode from the
-	// actual (filtered+sorted) row count.
-	const effectiveRowCount = $derived(mode === 'server' ? (totalRows ?? 0) : sorted.length);
+	// it has been fetched so far, not the true total); client mode from the
+	// grouped flat-entry count when grouped, otherwise the actual
+	// (filtered+sorted) row count.
+	const effectiveRowCount = $derived(
+		mode === 'server' ? (totalRows ?? 0) : (groupedEntries?.length ?? sorted.length)
+	);
 
 	const rowsViewportHeight = $derived(Math.max(0, viewportHeight - headerHeight));
 	const effectiveScrollTop = $derived(Math.max(0, scrollTop - headerHeight));
@@ -162,6 +202,12 @@
 		mode === 'server'
 			? Array.from({ length: windowResult.end - windowResult.start }, (_, i) => rows[windowResult.start + i])
 			: sorted.slice(windowResult.start, windowResult.end)
+	);
+
+	// Grouped-mode counterpart of `visibleRows`: the virtualized window
+	// slices `groupedEntries` (group headers + rows) instead of `sorted`.
+	const visibleEntries = $derived(
+		groupedEntries ? groupedEntries.slice(windowResult.start, windowResult.end) : []
 	);
 
 	// Server mode only: notify the caller when the virtualized window
@@ -201,6 +247,46 @@
 	/** Keyed `{#each}` block key for a (possibly sparse-hole) visible row. */
 	function rowKeyFor(row: TRow | undefined, rowIndex: number): string | number {
 		return row === undefined ? `__hole_${rowIndex}` : getRowId(row);
+	}
+
+	/** Keyed `{#each}` block key for a grouped-mode flat entry (spec §4.3). */
+	function entryKeyFor(entry: FlatEntry<TRow>): string | number {
+		return entry.kind === 'group' ? `__group_${entry.key}` : getRowId(entry.row);
+	}
+
+	/**
+	 * Resolve the concrete row at a "display" row index - i.e. an index into
+	 * whichever list is currently driving rendering/selection (`groupedEntries`
+	 * when grouped, `rows` in server mode, `sorted` otherwise). Every place
+	 * that used to read `sorted[selection.active.rowIndex]` goes through this
+	 * instead, so cell selection/editing/copy-paste keep working unchanged
+	 * whether or not grouping is active (spec §4.3). Returns undefined for a
+	 * group header row or an out-of-range index.
+	 */
+	function rowAtDisplayIndex(index: number): TRow | undefined {
+		if (groupedEntries) {
+			const entry = groupedEntries[index];
+			return entry && entry.kind === 'row' ? entry.row : undefined;
+		}
+		return mode === 'server' ? rows[index] : sorted[index];
+	}
+
+	/** Whether the entry at this display row index is a group header (spec §4.3). */
+	function isGroupHeaderAt(index: number): boolean {
+		return groupedEntries?.[index]?.kind === 'group';
+	}
+
+	/** The group key at this display row index, or null when it's not a group header row. */
+	function groupKeyAt(index: number): string | null {
+		const entry = groupedEntries?.[index];
+		return entry && entry.kind === 'group' ? entry.key : null;
+	}
+
+	/** Click (or Enter/Space via the container's keydown handler) toggles a group header's collapsed state (spec §4.3). */
+	function handleGroupHeaderClick(rowIndex: number, key: string) {
+		containerEl?.focus();
+		selection.setActive(rowIndex, selection.active?.field ?? orderedFieldIds[0], false);
+		gridState.toggleGroup(key);
 	}
 
 	function renderCell(column: GridColumn<TRow>, row: TRow): string {
@@ -392,11 +478,14 @@
 
 		const rowCount = effectiveRowCount;
 		const activeColumn = gridState.orderedColumns.find((c) => c.id === selection.active!.field);
-		const activeRow = sorted[selection.active!.rowIndex];
+		const activeRow = rowAtDisplayIndex(selection.active!.rowIndex);
 
 		switch (event.key) {
 			case 'ArrowUp':
 				event.preventDefault();
+				// Group headers are just another row slot in `groupedEntries`, so
+				// up/down "moves through them" for free - no special-casing
+				// needed (spec §4.3).
 				selection.moveActive(-1, 0, event.shiftKey, rowCount, orderedFieldIds);
 				scrollActiveIntoView();
 				break;
@@ -407,13 +496,22 @@
 				break;
 			case 'ArrowLeft':
 				event.preventDefault();
-				selection.moveActive(0, -1, event.shiftKey, rowCount, orderedFieldIds);
-				scrollActiveIntoView();
+				// A group header renders as one full-width unit with no
+				// per-column cells (spec §4.3), so there is no field to move
+				// between while active sits on one - simplification: left/right
+				// are a no-op there instead of trying to model a "field" concept
+				// that doesn't visually exist.
+				if (!isGroupHeaderAt(selection.active.rowIndex)) {
+					selection.moveActive(0, -1, event.shiftKey, rowCount, orderedFieldIds);
+					scrollActiveIntoView();
+				}
 				break;
 			case 'ArrowRight':
 				event.preventDefault();
-				selection.moveActive(0, 1, event.shiftKey, rowCount, orderedFieldIds);
-				scrollActiveIntoView();
+				if (!isGroupHeaderAt(selection.active.rowIndex)) {
+					selection.moveActive(0, 1, event.shiftKey, rowCount, orderedFieldIds);
+					scrollActiveIntoView();
+				}
 				break;
 			case 'Tab':
 				event.preventDefault();
@@ -446,6 +544,11 @@
 			}
 			case 'Enter': {
 				event.preventDefault();
+				const enterGroupKey = groupKeyAt(selection.active.rowIndex);
+				if (enterGroupKey !== null) {
+					gridState.toggleGroup(enterGroupKey);
+					break;
+				}
 				if (!activeColumn || !activeRow) break;
 				if (isEditable(activeColumn, activeRow)) {
 					startEditing(selection.active.rowIndex, activeColumn, activeRow);
@@ -468,7 +571,13 @@
 					startEditing(selection.active.rowIndex, activeColumn, activeRow);
 				}
 				break;
-			case ' ':
+			case ' ': {
+				const spaceGroupKey = groupKeyAt(selection.active.rowIndex);
+				if (spaceGroupKey !== null) {
+					event.preventDefault();
+					gridState.toggleGroup(spaceGroupKey);
+					break;
+				}
 				if (!hasEditableColumns && onRowClick && activeRow) {
 					event.preventDefault();
 					onRowClick(activeRow);
@@ -484,6 +593,7 @@
 					event.preventDefault();
 				}
 				break;
+			}
 			default:
 				if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'c') {
 					event.preventDefault();
@@ -617,11 +727,41 @@
 		void commitFromEditor(rowIndex, column, row);
 	}
 
+	/**
+	 * Grouped-mode counterpart of `rangeToTsv` (spec §4.3): a range spanning a
+	 * group header simply skips that line entirely (not an empty TSV line,
+	 * unlike a server-mode sparse-array hole) - simplification documented in
+	 * the spec itself ("TSV copy of a range spanning a header just skips
+	 * that line").
+	 */
+	function groupedRangeToTsv(range: CellRange): string {
+		const entries = groupedEntries!;
+		const lines: string[] = [];
+		for (let r = range.rowStart; r <= range.rowEnd; r++) {
+			const entry = entries[r];
+			if (!entry || entry.kind === 'group') continue;
+			const cells: string[] = [];
+			for (let f = range.fieldStart; f <= range.fieldEnd; f++) {
+				const column = gridState.orderedColumns[f];
+				if (!column) {
+					cells.push('');
+					continue;
+				}
+				const raw = getColumnValue(entry.row, column);
+				cells.push(raw === null || raw === undefined ? '' : String(raw));
+			}
+			lines.push(cells.join('\t'));
+		}
+		return lines.join('\n');
+	}
+
 	// --- Copy / paste (TSV; spec §4.5) ---
 	async function copySelection() {
 		const range = selection.getRange(orderedFieldIds);
 		if (!range) return;
-		const text = rangeToTsv(sorted, gridState.orderedColumns, range, getColumnValue);
+		const text = groupedEntries
+			? groupedRangeToTsv(range)
+			: rangeToTsv(sorted, gridState.orderedColumns, range, getColumnValue);
 
 		if (navigator.clipboard?.writeText) {
 			try {
@@ -672,7 +812,11 @@
 		let skipped = 0;
 
 		grid.forEach((lineCells, rOffset) => {
-			const row = sorted[startRowIndex + rOffset];
+			// Grouped mode (spec §4.3): a pasted line landing on a group header
+			// row resolves to `undefined` here too (same as a server-mode
+			// sparse-array hole), so it falls into the existing skip branch
+			// below - consistent with copy's "skip group header lines" rule.
+			const row = rowAtDisplayIndex(startRowIndex + rOffset);
 			if (!row) {
 				skipped += lineCells.length;
 				return;
@@ -754,6 +898,119 @@
 			></div>
 		{/if}
 
+		{#snippet dataRow(row: TRow, rowIndex: number)}
+			<div
+				class="row"
+				role="row"
+				aria-rowindex={rowIndex + 2}
+				style:grid-template-columns={templateColumns}
+				style:height={`${gridState.rowHeight}px`}
+			>
+				{#each gridState.orderedColumns as column, fieldIndex (column.id)}
+					{@const isActiveCell = selection.active?.rowIndex === rowIndex && selection.active?.field === column.id}
+					{@const isInRange = selection.isSelected(rowIndex, fieldIndex, orderedFieldIds)}
+					{@const isEditingCell = editing?.rowIndex === rowIndex && editing?.field === column.id}
+					{@const linkInfo = column.cell?.(row)}
+					<!--
+						Keyboard focus/activation for cells is handled at the grid
+						container level (roving "virtual" focus via `selection.active`
+						+ handleContainerKeydown), not per-cell DOM focus/tabindex:
+						row/cell DOM nodes come and go under virtualization, so a
+						literal per-cell tabindex would be meaningless as soon as a
+						row scrolls out. Mouse users still get click/dblclick here.
+					-->
+					<!-- svelte-ignore a11y_interactive_supports_focus -->
+					<!-- svelte-ignore a11y_click_events_have_key_events -->
+					<div
+						class="cell"
+						role="gridcell"
+						aria-selected={isInRange}
+						data-cell-row={rowIndex}
+						data-cell-field={column.id}
+						style:justify-content={justifyFor(column.align)}
+						class:active={isActiveCell}
+						class:in-range={isInRange && !isActiveCell}
+						class:editing={isEditingCell}
+						class:error={isEditingCell && !!editing?.error}
+						onpointerdown={(event) => handleCellPointerDown(event, rowIndex, column.id)}
+						onclick={() => handleCellClick(row)}
+						ondblclick={() => handleCellDoubleClick(rowIndex, column, row)}
+					>
+						{#if linkInfo}
+							{#if linkInfo.href}
+								<a
+									class="cell-link"
+									href={linkInfo.href}
+									onclick={(event) => event.stopPropagation()}
+									ondblclick={(event) => event.stopPropagation()}
+								>{linkInfo.text}</a>
+							{:else}
+								{linkInfo.text}
+							{/if}
+						{:else if isEditingCell && editing}
+							{#if (column.editor ?? 'text') === 'select'}
+								<select
+									bind:this={editorEl}
+									class="cell-editor"
+									class:pending={editing.pending}
+									value={String(editing.draft ?? '')}
+									onpointerdown={(event) => event.stopPropagation()}
+									onchange={(event) => {
+										if (editing) {
+											editing.draft = resolveSelectValue(event.currentTarget.value, column.editorOptions);
+										}
+									}}
+									onkeydown={(event) => handleEditorKeydown(event, rowIndex, column, row)}
+									onblur={() => handleEditorBlur(rowIndex, column, row)}
+								>
+									{#each column.editorOptions ?? [] as option (option.value)}
+										<option value={String(option.value)}>{option.label}</option>
+									{/each}
+								</select>
+							{:else if (column.editor ?? 'text') === 'checkbox'}
+								<input
+									type="checkbox"
+									bind:this={editorEl}
+									class="cell-editor"
+									class:pending={editing.pending}
+									checked={!!editing.draft}
+									onpointerdown={(event) => event.stopPropagation()}
+									onclick={(event) => event.stopPropagation()}
+									onchange={(event) =>
+										handleCheckboxToggle(rowIndex, column, row, event.currentTarget.checked)}
+									onkeydown={(event) => handleEditorKeydown(event, rowIndex, column, row)}
+									onblur={() => handleEditorBlur(rowIndex, column, row)}
+								/>
+							{:else}
+								<input
+									type={column.editor === 'number'
+										? 'number'
+										: column.editor === 'date'
+											? 'date'
+											: 'text'}
+									bind:this={editorEl}
+									class="cell-editor"
+									class:pending={editing.pending}
+									value={String(editing.draft ?? '')}
+									onpointerdown={(event) => event.stopPropagation()}
+									oninput={(event) => {
+										if (editing) editing.draft = event.currentTarget.value;
+									}}
+									onkeydown={(event) => handleEditorKeydown(event, rowIndex, column, row)}
+									onblur={() => handleEditorBlur(rowIndex, column, row)}
+								/>
+							{/if}
+							{#if editing.error}
+								<div class="cell-error" role="alert">{editing.error}</div>
+							{/if}
+						{:else}
+							{renderCell(column, row)}
+						{/if}
+					</div>
+				{/each}
+			</div>
+		{/snippet}
+
 		{#if effectiveRowCount === 0}
 			<div class="empty-row">データがありません</div>
 		{:else}
@@ -763,146 +1020,75 @@
 					role="rowgroup"
 					style:transform={`translateY(${windowResult.offsetY}px)`}
 				>
-					{#each visibleRows as row, i (rowKeyFor(row, windowResult.start + i))}
-						{@const rowIndex = windowResult.start + i}
-						{#if row === undefined}
-							<!--
-								Server mode (spec §4.1, M5): this absolute row
-								index hasn't been fetched yet (a hole in the
-								sparse `rows` array) - render an inert
-								placeholder at the right height so the
-								scrollbar/virtualization math stays correct,
-								with no click/edit interactions and its content
-								hidden from assistive tech (there's nothing
-								meaningful to announce yet).
-							-->
-							<div
-								class="row placeholder-row"
-								role="row"
-								aria-rowindex={rowIndex + 2}
-								aria-hidden="true"
-								style:grid-template-columns={templateColumns}
-								style:height={`${gridState.rowHeight}px`}
-							>
-								{#each gridState.orderedColumns as column, fieldIndex (column.id)}
-									<div class="cell placeholder-cell" style:justify-content={justifyFor(column.align)}>
-										{#if fieldIndex === 0}…{/if}
-									</div>
-								{/each}
-							</div>
-						{:else}
-						<div
-							class="row"
-							role="row"
-							aria-rowindex={rowIndex + 2}
-							style:grid-template-columns={templateColumns}
-							style:height={`${gridState.rowHeight}px`}
-						>
-							{#each gridState.orderedColumns as column, fieldIndex (column.id)}
-								{@const isActiveCell = selection.active?.rowIndex === rowIndex && selection.active?.field === column.id}
-								{@const isInRange = selection.isSelected(rowIndex, fieldIndex, orderedFieldIds)}
-								{@const isEditingCell = editing?.rowIndex === rowIndex && editing?.field === column.id}
-								{@const linkInfo = column.cell?.(row)}
+					{#if groupedEntries}
+						<!-- Client mode, grouped (spec §4.3): group headers + rows flattened by buildGroupedView. -->
+						{#each visibleEntries as entry, i (entryKeyFor(entry))}
+							{@const rowIndex = windowResult.start + i}
+							{#if entry.kind === 'group'}
 								<!--
-									Keyboard focus/activation for cells is handled at the grid
-									container level (roving "virtual" focus via `selection.active`
-									+ handleContainerKeydown), not per-cell DOM focus/tabindex:
-									row/cell DOM nodes come and go under virtualization, so a
-									literal per-cell tabindex would be meaningless as soon as a
-									row scrolls out. Mouse users still get click/dblclick here.
+									role="row" (not "button"): this is still a grid row
+									semantically (spec §4.3 asks for role="row" +
+									aria-expanded), just one that toggles on click/Enter/
+									Space. Keyboard activation goes through the container's
+									existing roving-focus keydown handler (same pattern as
+									the per-cell divs above), not a per-element tabindex, so
+									the interactive-role a11y lint is suppressed rather than
+									"fixed" by adding a real tabindex here.
 								-->
-								<!-- svelte-ignore a11y_interactive_supports_focus -->
 								<!-- svelte-ignore a11y_click_events_have_key_events -->
+								<!-- svelte-ignore a11y_no_static_element_interactions -->
+								<!-- svelte-ignore a11y_interactive_supports_focus -->
 								<div
-									class="cell"
-									role="gridcell"
-									aria-selected={isInRange}
-									data-cell-row={rowIndex}
-									data-cell-field={column.id}
-									style:justify-content={justifyFor(column.align)}
-									class:active={isActiveCell}
-									class:in-range={isInRange && !isActiveCell}
-									class:editing={isEditingCell}
-									class:error={isEditingCell && !!editing?.error}
-									onpointerdown={(event) => handleCellPointerDown(event, rowIndex, column.id)}
-									onclick={() => handleCellClick(row)}
-									ondblclick={() => handleCellDoubleClick(rowIndex, column, row)}
+									class="row group-header-row"
+									role="row"
+									aria-rowindex={rowIndex + 2}
+									aria-expanded={!entry.collapsed}
+									style:height={`${gridState.rowHeight}px`}
+									onclick={() => handleGroupHeaderClick(rowIndex, entry.key)}
 								>
-									{#if linkInfo}
-										{#if linkInfo.href}
-											<a
-												class="cell-link"
-												href={linkInfo.href}
-												onclick={(event) => event.stopPropagation()}
-												ondblclick={(event) => event.stopPropagation()}
-											>{linkInfo.text}</a>
-										{:else}
-											{linkInfo.text}
-										{/if}
-									{:else if isEditingCell && editing}
-										{#if (column.editor ?? 'text') === 'select'}
-											<select
-												bind:this={editorEl}
-												class="cell-editor"
-												class:pending={editing.pending}
-												value={String(editing.draft ?? '')}
-												onpointerdown={(event) => event.stopPropagation()}
-												onchange={(event) => {
-													if (editing) {
-														editing.draft = resolveSelectValue(event.currentTarget.value, column.editorOptions);
-													}
-												}}
-												onkeydown={(event) => handleEditorKeydown(event, rowIndex, column, row)}
-												onblur={() => handleEditorBlur(rowIndex, column, row)}
-											>
-												{#each column.editorOptions ?? [] as option (option.value)}
-													<option value={String(option.value)}>{option.label}</option>
-												{/each}
-											</select>
-										{:else if (column.editor ?? 'text') === 'checkbox'}
-											<input
-												type="checkbox"
-												bind:this={editorEl}
-												class="cell-editor"
-												class:pending={editing.pending}
-												checked={!!editing.draft}
-												onpointerdown={(event) => event.stopPropagation()}
-												onclick={(event) => event.stopPropagation()}
-												onchange={(event) =>
-													handleCheckboxToggle(rowIndex, column, row, event.currentTarget.checked)}
-												onkeydown={(event) => handleEditorKeydown(event, rowIndex, column, row)}
-												onblur={() => handleEditorBlur(rowIndex, column, row)}
-											/>
-										{:else}
-											<input
-												type={column.editor === 'number'
-													? 'number'
-													: column.editor === 'date'
-														? 'date'
-														: 'text'}
-												bind:this={editorEl}
-												class="cell-editor"
-												class:pending={editing.pending}
-												value={String(editing.draft ?? '')}
-												onpointerdown={(event) => event.stopPropagation()}
-												oninput={(event) => {
-													if (editing) editing.draft = event.currentTarget.value;
-												}}
-												onkeydown={(event) => handleEditorKeydown(event, rowIndex, column, row)}
-												onblur={() => handleEditorBlur(rowIndex, column, row)}
-											/>
-										{/if}
-										{#if editing.error}
-											<div class="cell-error" role="alert">{editing.error}</div>
-										{/if}
-									{:else}
-										{renderCell(column, row)}
-									{/if}
+									<span class="disclosure" aria-hidden="true">{entry.collapsed ? '▸' : '▾'}</span>
+									<span class="group-label">{entry.label}（{entry.count.toLocaleString()}件）</span>
+									{#each gridState.orderedColumns.filter((c) => c.aggregate) as aggColumn (aggColumn.id)}
+										<span class="agg-chip">{aggColumn.header}: {entry.aggregates[aggColumn.id] ?? ''}</span>
+									{/each}
 								</div>
-							{/each}
-						</div>
-						{/if}
-					{/each}
+							{:else}
+								{@render dataRow(entry.row, rowIndex)}
+							{/if}
+						{/each}
+					{:else}
+						{#each visibleRows as row, i (rowKeyFor(row, windowResult.start + i))}
+							{@const rowIndex = windowResult.start + i}
+							{#if row === undefined}
+								<!--
+									Server mode (spec §4.1, M5): this absolute row
+									index hasn't been fetched yet (a hole in the
+									sparse `rows` array) - render an inert
+									placeholder at the right height so the
+									scrollbar/virtualization math stays correct,
+									with no click/edit interactions and its content
+									hidden from assistive tech (there's nothing
+									meaningful to announce yet).
+								-->
+								<div
+									class="row placeholder-row"
+									role="row"
+									aria-rowindex={rowIndex + 2}
+									aria-hidden="true"
+									style:grid-template-columns={templateColumns}
+									style:height={`${gridState.rowHeight}px`}
+								>
+									{#each gridState.orderedColumns as column, fieldIndex (column.id)}
+										<div class="cell placeholder-cell" style:justify-content={justifyFor(column.align)}>
+											{#if fieldIndex === 0}…{/if}
+										</div>
+									{/each}
+								</div>
+							{:else}
+								{@render dataRow(row, rowIndex)}
+							{/if}
+						{/each}
+					{/if}
 				</div>
 			</div>
 		{/if}
@@ -980,6 +1166,44 @@
 		padding: 0 0.6rem;
 		color: var(--banto-text-muted);
 		user-select: none;
+	}
+
+	/* Client-mode grouping (spec §4.3): a collapsible group header row, spanning full width (overrides .row's `display: grid`). */
+	.group-header-row {
+		display: flex;
+		align-items: center;
+		gap: 0.6rem;
+		padding: 0 0.6rem;
+		background: color-mix(in srgb, var(--banto-primary) 6%, transparent);
+		font-weight: 600;
+		cursor: pointer;
+		user-select: none;
+	}
+
+	.group-header-row:hover {
+		background: color-mix(in srgb, var(--banto-primary) 10%, transparent);
+	}
+
+	.disclosure {
+		width: 1em;
+		flex: 0 0 auto;
+		text-align: center;
+		color: var(--banto-primary);
+	}
+
+	.group-label {
+		flex: 0 0 auto;
+	}
+
+	.agg-chip {
+		font-weight: 400;
+		font-size: 0.75rem;
+		color: var(--banto-text-muted);
+		background: var(--banto-surface);
+		border: 1px solid var(--banto-border);
+		border-radius: 999px;
+		padding: 0.1rem 0.6rem;
+		white-space: nowrap;
 	}
 
 	.cell {

@@ -1,9 +1,9 @@
 <script lang="ts">
-	import type { CellEdit, GridColumn } from '@banto/grid-svelte';
+	import { GridState, type CellEdit, type GridColumn } from '@banto/grid-svelte';
 	import { getDataProvider, getResource, invalidate, isProviderError, notify } from '@banto/admin-core';
 	import { goto } from '$app/navigation';
 	import type { Item } from '$lib/banto/sampleData';
-	import ItemsClientGrid from './ItemsClientGrid.svelte';
+	import ItemsClientGrid, { type ItemRow } from './ItemsClientGrid.svelte';
 	import ItemsServerGrid from './ItemsServerGrid.svelte';
 
 	const resource = getResource('items');
@@ -104,6 +104,47 @@
 		}
 	];
 
+	function columnById(id: string): GridColumn<Item> {
+		return columns.find((column) => column.id === id)!;
+	}
+
+	// M5 Phase B (spec §4.3) grouping demo: the CLIENT grid only gets an extra
+	// 「カテゴリ」 column (ItemsClientGrid derives it from `name`) plus
+	// per-column aggregates, so its own column array is built separately from
+	// the shared `columns` above (which stays exactly as-is for サーバー mode -
+	// grouping has no server-mode equivalent yet, spec §4.3).
+	const clientColumns: GridColumn<ItemRow>[] = [
+		columnById('open'),
+		{ ...columnById('id'), aggregate: 'count' },
+		columnById('name'),
+		{
+			id: 'category',
+			header: 'カテゴリ',
+			accessor: 'category',
+			width: 140,
+			filterable: true,
+			filterType: 'text',
+			groupable: true
+		},
+		{ ...columnById('price'), aggregate: 'avg' },
+		{ ...columnById('stock'), aggregate: 'sum' },
+		columnById('updatedAt')
+	];
+
+	// Owned here (not inside ItemsClientGrid) so the shared header's group-by
+	// <select> below can call `.setGroupBy(...)` directly - same wiring
+	// pattern ItemsServerGrid already uses for its own externally-owned
+	// GridState (spec §4.1/§4.3).
+	// svelte-ignore state_referenced_locally
+	const clientGridState = new GridState<ItemRow>(clientColumns);
+
+	type GroupByOption = '' | 'category' | 'updatedAt';
+
+	function handleGroupByChange(event: Event) {
+		const value = (event.currentTarget as HTMLSelectElement).value as GroupByOption;
+		clientGridState.setGroupBy(value === '' ? null : value);
+	}
+
 	function handleRowClick(item: Item) {
 		goto(`/items/${item.id}`);
 	}
@@ -194,17 +235,31 @@
 					サーバー
 				</button>
 			</div>
+			<label class="group-by">
+				グループ化:
+				<select
+					disabled={mode !== 'client'}
+					title={mode !== 'client' ? 'グループ化はクライアントモードのみ' : undefined}
+					onchange={handleGroupByChange}
+				>
+					<option value="">グループなし</option>
+					<option value="category">カテゴリ</option>
+					<option value="updatedAt">更新日</option>
+				</select>
+			</label>
 			<button type="button" onclick={() => goto('/items/new')}>新規作成</button>
 		</div>
 	</div>
 
 	<p class="note">
-		セル編集（ダブルクリック/Enter）・範囲選択・コピー&ペースト対応（M3）。「クライアント」は全件を一度に取得し、ソート/フィルタ/ページングをブラウザ側（BantoGrid）で行います。「サーバー」ではソート/フィルタ/ページングをDataProvider（ブラウザ=InMemory、Tauri=Rust+SQLite）が実行し、行はスクロールに応じてブロック単位で遅延取得します（M5）。
+		セル編集（ダブルクリック/Enter）・範囲選択・コピー&ペースト対応（M3）。「クライアント」は全件を一度に取得し、ソート/フィルタ/ページングをブラウザ側（BantoGrid）で行います。「サーバー」ではソート/フィルタ/ページングをDataProvider（ブラウザ=InMemory、Tauri=Rust+SQLite）が実行し、行はスクロールに応じてブロック単位で遅延取得します（M5）。M5:
+		クライアントモードでグループ化・集計に対応（グループ化はクライアントモードのみ。サーバーモードでのグループ化は今後の対応予定です）。
 	</p>
 
 	{#if mode === 'client'}
 		<ItemsClientGrid
-			{columns}
+			columns={clientColumns}
+			state={clientGridState}
 			onRowClick={handleRowClick}
 			onCellEdit={handleCellEdit}
 			onRangePaste={handleRangePaste}
@@ -285,6 +340,28 @@
 	.mode-toggle button.active {
 		background: var(--banto-primary);
 		color: var(--banto-text-inverse);
+	}
+
+	.group-by {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.4rem;
+		font-size: 0.8rem;
+		color: var(--banto-text-muted);
+	}
+
+	.group-by select {
+		padding: 0.35rem 0.5rem;
+		border: 1px solid var(--banto-border);
+		border-radius: var(--banto-radius);
+		background: var(--banto-surface);
+		color: var(--banto-text);
+		font-size: 0.8rem;
+	}
+
+	.group-by select:disabled {
+		cursor: not-allowed;
+		opacity: 0.6;
 	}
 
 	.note {

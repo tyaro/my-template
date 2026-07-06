@@ -146,13 +146,56 @@ describe('GridState', () => {
 		});
 	});
 
+	describe('groupBy / collapsedGroups', () => {
+		it('defaults to null groupBy and an empty collapsedGroups', () => {
+			const state = new GridState(columns);
+			expect(state.groupBy).toBeNull();
+			expect(state.collapsedGroups.size).toBe(0);
+		});
+
+		it('setGroupBy sets the field and resets collapsedGroups', () => {
+			const state = new GridState(columns);
+			state.toggleGroup('a');
+			state.setGroupBy('name');
+			expect(state.groupBy).toBe('name');
+			expect(state.collapsedGroups.size).toBe(0);
+		});
+
+		it('setGroupBy(null) clears grouping', () => {
+			const state = new GridState(columns);
+			state.setGroupBy('name');
+			state.setGroupBy(null);
+			expect(state.groupBy).toBeNull();
+		});
+
+		it('toggleGroup adds then removes a key', () => {
+			const state = new GridState(columns);
+			state.toggleGroup('tea');
+			expect(state.collapsedGroups.has('tea')).toBe(true);
+			state.toggleGroup('tea');
+			expect(state.collapsedGroups.has('tea')).toBe(false);
+		});
+
+		it('toggleGroup tracks multiple independent keys', () => {
+			const state = new GridState(columns);
+			state.toggleGroup('a');
+			state.toggleGroup('b');
+			expect(state.collapsedGroups.has('a')).toBe(true);
+			expect(state.collapsedGroups.has('b')).toBe(true);
+			state.toggleGroup('a');
+			expect(state.collapsedGroups.has('a')).toBe(false);
+			expect(state.collapsedGroups.has('b')).toBe(true);
+		});
+	});
+
 	describe('serialize / hydrate round-trip', () => {
-		it('restores sort, filters, order and widths', () => {
+		it('restores sort, filters, order, widths and groupBy', () => {
 			const state = new GridState(columns);
 			state.toggleSort('price', false);
 			state.setFilter({ field: 'name', op: 'contains', value: 'tea' });
 			state.moveColumn('price', 0);
 			state.resizeColumn('name', 200);
+			state.setGroupBy('name');
 
 			const json = state.serialize();
 
@@ -163,6 +206,19 @@ describe('GridState', () => {
 			expect(restored.filters).toEqual(state.filters);
 			expect(restored.order).toEqual(state.order);
 			expect(restored.widths).toEqual(state.widths);
+			expect(restored.groupBy).toBe('name');
+		});
+
+		it('does NOT persist collapsedGroups (ephemeral UI state)', () => {
+			const state = new GridState(columns);
+			state.setGroupBy('name');
+			state.toggleGroup('tea');
+			const json = state.serialize();
+			expect(JSON.parse(json)).not.toHaveProperty('collapsedGroups');
+
+			const restored = new GridState(columns);
+			restored.hydrate(json);
+			expect(restored.collapsedGroups.size).toBe(0);
 		});
 
 		it('static hydrate constructs and applies in one step', () => {
@@ -178,6 +234,21 @@ describe('GridState', () => {
 			const state = new GridState(columns);
 			expect(() => state.hydrate('not json')).not.toThrow();
 			expect(state.sort).toEqual([]);
+		});
+
+		it('defaults groupBy to null when hydrating a payload saved before M5 Phase B', () => {
+			const state = new GridState(columns);
+			state.toggleSort('id', false);
+			const legacyJson = JSON.stringify({
+				sort: state.sort,
+				filters: state.filters,
+				order: state.order,
+				widths: state.widths
+			});
+
+			const restored = new GridState(columns);
+			restored.hydrate(legacyJson);
+			expect(restored.groupBy).toBeNull();
 		});
 
 		it('drops columns that no longer exist and appends unknown-at-save-time new columns', () => {
