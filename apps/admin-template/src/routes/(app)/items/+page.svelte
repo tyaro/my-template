@@ -56,8 +56,12 @@
 			editable: true,
 			editor: 'text',
 			// Same rules/messages as itemsSchema.name (src/lib/banto/setup.ts).
+			// Trim before checking emptiness/length, matching Rust's
+			// `input.name.trim()` in validate_item_input (items.rs) exactly -
+			// otherwise a whitespace-only name passes here and only fails
+			// after a round trip to the real Tauri backend.
 			validate: (value) => {
-				const str = String(value ?? '');
+				const str = String(value ?? '').trim();
 				if (str.length === 0) return '必須項目です';
 				if (str.length > 40) return '40文字以内で入力してください';
 				return null;
@@ -75,10 +79,13 @@
 			editable: true,
 			editor: 'number',
 			// Same rules/messages as itemsSchema.price (src/lib/banto/setup.ts).
+			// Rust's ItemInput.price is `i64` (items.rs), so a fractional value
+			// (e.g. "10.5") must be rejected here too, not just bounds-checked.
 			validate: (value) => {
 				const num = Number(value);
 				if (num < 0) return '0以上で入力してください';
 				if (num > 99999) return '99999以下で入力してください';
+				if (!Number.isInteger(num)) return '整数で入力してください';
 				return null;
 			}
 		},
@@ -93,9 +100,12 @@
 			editable: true,
 			editor: 'number',
 			// Same rule/message as itemsSchema.stock (src/lib/banto/setup.ts).
+			// Rust's ItemInput.stock is `i64` (items.rs), so a fractional value
+			// must be rejected here too, not just bounds-checked.
 			validate: (value) => {
 				const num = Number(value);
 				if (num < 0) return '0以上で入力してください';
+				if (!Number.isInteger(num)) return '整数で入力してください';
 				return null;
 			}
 		},
@@ -118,16 +128,28 @@
 
 	// M3 (spec §4.5): commit a single inline cell edit. A validation error
 	// from the provider is re-thrown as a plain Error so BantoGrid re-enters
-	// edit mode on that cell and shows the message inline (first field error
-	// only - the grid can only display one message per cell); any other
+	// edit mode on that cell and shows the message inline; any other
 	// provider error is unexpected, so it's also toasted before rethrowing.
+	//
+	// BantoGrid's onCellEdit contract only understands `Error.message` - a
+	// cell can display exactly one message, no structured shape - so when the
+	// provider returns several field_errors (mergedValues always sends the
+	// full row, so an edit to one field can surface a violation on another),
+	// we must pick just one. Priority: the entry for the field the user
+	// actually edited wins if present (that's the one they can see and fix
+	// inline); only fall back to the first entry when the edited field itself
+	// has no violation (rare - e.g. some other field was already invalid).
+	// This is a known limitation of the current onCellEdit contract, pending
+	// a richer (multi-field) error shape in a later milestone.
 	async function handleCellEdit(edit: CellEdit<Item>) {
 		try {
 			await getDataProvider().update('items', edit.rowId, mergedValues(edit.row, edit.field, edit.value));
 			invalidate('items');
 		} catch (err) {
 			if (isProviderError(err) && err.body.kind === 'validation') {
-				throw new Error(err.body.field_errors[0]?.message ?? err.message);
+				const fieldError =
+					err.body.field_errors.find((fe) => fe.field === edit.field) ?? err.body.field_errors[0];
+				throw new Error(fieldError?.message ?? err.message);
 			}
 			notify('error', isProviderError(err) ? err.message : String(err));
 			throw err;

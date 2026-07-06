@@ -57,6 +57,32 @@ describe('validateField', () => {
 		expect(validateField(def, '5', {})).toBe('10以上で入力してください');
 		expect(validateField(def, '20', {})).toBeNull();
 	});
+
+	it('required: whitespace-only strings are trimmed before the emptiness check', () => {
+		const def: FieldDef = { name: 'name', label: 'Name', type: 'text', required: true };
+		expect(validateField(def, '   ', {})).toBe('必須項目です');
+		expect(validateField(def, '\t\n ', {})).toBe('必須項目です');
+		expect(validateField(def, '  a  ', {})).toBeNull();
+	});
+
+	it('required: falsy non-string values (0, false) are not treated as empty', () => {
+		const numberDef: FieldDef = { name: 'stock', label: 'Stock', type: 'number', required: true };
+		expect(validateField(numberDef, 0, {})).toBeNull();
+		const checkboxDef: FieldDef = { name: 'flag', label: 'Flag', type: 'checkbox', required: true };
+		expect(validateField(checkboxDef, false, {})).toBeNull();
+	});
+
+	it('text max length is checked against the trimmed length', () => {
+		const def: FieldDef = { name: 'name', label: 'Name', type: 'text', max: 4 };
+		expect(validateField(def, 'abcd   ', {})).toBeNull();
+		expect(validateField(def, 'abcde   ', {})).toBe('4文字以内で入力してください');
+	});
+
+	it('text min length is checked against the trimmed length', () => {
+		const def: FieldDef = { name: 'name', label: 'Name', type: 'text', min: 3 };
+		expect(validateField(def, '  ab  ', {})).toBe('3文字以上で入力してください');
+		expect(validateField(def, '  abc  ', {})).toBeNull();
+	});
 });
 
 describe('validateAll', () => {

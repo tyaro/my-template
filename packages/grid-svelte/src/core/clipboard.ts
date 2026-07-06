@@ -4,6 +4,8 @@
  */
 import type { CellEditorType, CellRange, GridColumn } from '../types';
 
+type EditorOption = { value: string | number; label: string };
+
 /**
  * Build a TSV string for `range` from `rows`/`orderedColumns`. Copies the
  * RAW value via `getValue` (typically `getColumnValue`), never
@@ -72,4 +74,27 @@ export function parseCellInput(
 		return { ok: false };
 	}
 	return { ok: true, value: raw };
+}
+
+/**
+ * Reconcile a raw string cell value (from a `<select>` element's
+ * `.value`/`onchange`, which is always a string, or from `parseCellInput`'s
+ * pass-through for a pasted 'select' cell) against `column.editorOptions`'s
+ * original value types. `editorOptions` entries commonly carry numeric
+ * `value`s (e.g. `{ value: 1, label: '...' }`); without this step a select
+ * edit/paste would always commit a string ("1") instead of the option's
+ * actual value (1), which then also breaks `prepareCommit`'s `draft ===
+ * oldValue` no-op check (a numeric `oldValue` never `===` a string draft).
+ *
+ * Matches by comparing `String(option.value)` against `raw` - i.e. by value,
+ * not by label. Paste text and the `<select>`'s `.value` both carry the
+ * value-side text (see `<option value={String(option.value)}>` in
+ * BantoGrid.svelte), never the display label, so matching by value is both
+ * simpler and the only choice that round-trips correctly; if no option
+ * matches, `raw` is returned unchanged (the caller's own validation, if any,
+ * is responsible for rejecting an unmatched value).
+ */
+export function resolveSelectValue(raw: string, editorOptions: EditorOption[] | undefined): unknown {
+	const match = editorOptions?.find((option) => String(option.value) === raw);
+	return match ? match.value : raw;
 }

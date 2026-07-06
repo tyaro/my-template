@@ -18,7 +18,7 @@
 	import { getColumnValue, sortRows } from './core/sort';
 	import { filterRows } from './core/filter';
 	import { computeWindow } from './core/virtual';
-	import { parseCellInput, parseTsv, rangeToTsv } from './core/clipboard';
+	import { parseCellInput, parseTsv, rangeToTsv, resolveSelectValue } from './core/clipboard';
 	import { prepareCommit } from './core/edit';
 	import HeaderCell from './HeaderCell.svelte';
 
@@ -442,12 +442,25 @@
 	) {
 		if (!editing || editing.pending) return;
 		const editorType = column.editor ?? 'text';
-		const parsed = parseCellInput(String(editing.draft ?? ''), editorType);
-		if (!parsed.ok) {
-			editing = { ...editing, error: '入力値が不正です' };
-			return;
+		let value: unknown;
+		if (editorType === 'select') {
+			// Never round-trip a select's draft through parseCellInput: it only
+			// passes strings through unchanged, which would undo the onchange
+			// handler's editorOptions resolution below. Re-resolving here is
+			// idempotent (and also covers the paste path never reaching this
+			// function at all), and is what makes `prepareCommit`'s `draft ===
+			// oldValue` no-op check work for select columns with non-string
+			// (e.g. numeric) option values.
+			value = resolveSelectValue(String(editing.draft ?? ''), column.editorOptions);
+		} else {
+			const parsed = parseCellInput(String(editing.draft ?? ''), editorType);
+			if (!parsed.ok) {
+				editing = { ...editing, error: '入力値が不正です' };
+				return;
+			}
+			value = parsed.value;
 		}
-		const closed = await commitValue(rowIndex, column, row, parsed.value);
+		const closed = await commitValue(rowIndex, column, row, value);
 		if (closed && moveAfter) {
 			const rowCount = sorted.length;
 			if (moveAfter === 'down') selection.moveActive(1, 0, false, rowCount, orderedFieldIds);
@@ -564,7 +577,16 @@
 					skipped += 1;
 					return;
 				}
-				const result = prepareCommit(column, row, getRowId(row), parsed.value);
+				// parseCellInput's 'select' case is a string pass-through (it has
+				// no access to column.editorOptions), so a pasted select-column
+				// cell needs the same value-type reconciliation the interactive
+				// onchange handler gets (see commitFromEditor above) - otherwise a
+				// numeric editorOptions value would be committed as a string.
+				const value =
+					column.editor === 'select'
+						? resolveSelectValue(String(parsed.value), column.editorOptions)
+						: parsed.value;
+				const result = prepareCommit(column, row, getRowId(row), value);
 				if (result.kind === 'invalid') {
 					skipped += 1;
 					return;
@@ -688,7 +710,9 @@
 												value={String(editing.draft ?? '')}
 												onpointerdown={(event) => event.stopPropagation()}
 												onchange={(event) => {
-													if (editing) editing.draft = event.currentTarget.value;
+													if (editing) {
+														editing.draft = resolveSelectValue(event.currentTarget.value, column.editorOptions);
+													}
 												}}
 												onkeydown={(event) => handleEditorKeydown(event, rowIndex, column, row)}
 												onblur={() => handleEditorBlur(rowIndex, column, row)}

@@ -23,8 +23,15 @@ const defaultMessages: Required<ValidationMessages> = {
 	pattern: () => '形式が正しくありません'
 };
 
+/**
+ * Matches Rust's `input.name.trim()` semantics (items.rs's
+ * `validate_item_input`): a whitespace-only string is empty. Only strings are
+ * trimmed - non-string falsy values (`0`, `false`) must NOT be treated as
+ * empty.
+ */
 function isEmpty(value: unknown): boolean {
-	return value === undefined || value === null || value === '';
+	if (typeof value === 'string') return value.trim() === '';
+	return value === undefined || value === null;
 }
 
 /** Validate a single field. Returns an error message, or null when valid. */
@@ -51,8 +58,12 @@ export function validateField(
 
 		if (def.type === 'text' || def.type === 'textarea') {
 			const str = String(value);
-			if (def.min !== undefined && str.length < def.min) return msg.minLength(def, def.min);
-			if (def.max !== undefined && str.length > def.max) return msg.maxLength(def, def.max);
+			// Length bounds are checked against the TRIMMED length, matching
+			// Rust's `trimmed_name.chars().count() > MAX_NAME_LEN` (items.rs)
+			// exactly. `pattern` still tests the raw (untrimmed) string.
+			const trimmedLen = str.trim().length;
+			if (def.min !== undefined && trimmedLen < def.min) return msg.minLength(def, def.min);
+			if (def.max !== undefined && trimmedLen > def.max) return msg.maxLength(def, def.max);
 			if (def.pattern && !new RegExp(def.pattern).test(str)) return msg.pattern(def);
 		}
 	}

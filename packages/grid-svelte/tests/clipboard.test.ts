@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseCellInput, parseTsv, rangeToTsv } from '../src/core/clipboard';
+import { parseCellInput, parseTsv, rangeToTsv, resolveSelectValue } from '../src/core/clipboard';
 import { getColumnValue } from '../src/core/sort';
 import type { GridColumn } from '../src/types';
 
@@ -118,5 +118,38 @@ describe('parseCellInput', () => {
 	it('checkbox rejects anything else', () => {
 		expect(parseCellInput('yes', 'checkbox')).toEqual({ ok: false });
 		expect(parseCellInput('', 'checkbox')).toEqual({ ok: false });
+	});
+});
+
+describe('resolveSelectValue', () => {
+	const numericOptions = [
+		{ value: 1, label: 'One' },
+		{ value: 2, label: 'Two' }
+	];
+
+	it('resolves a raw string to the matching option\'s (numeric) value, not a string', () => {
+		const resolved = resolveSelectValue('1', numericOptions);
+		expect(resolved).toBe(1);
+		expect(typeof resolved).toBe('number');
+	});
+
+	it('is idempotent: re-resolving an already-resolved (numeric) value still finds the match', () => {
+		expect(resolveSelectValue(String(2), numericOptions)).toBe(2);
+	});
+
+	it('falls back to the raw string when no option matches', () => {
+		expect(resolveSelectValue('999', numericOptions)).toBe('999');
+	});
+
+	it('falls back to the raw string when editorOptions is undefined', () => {
+		expect(resolveSelectValue('1', undefined)).toBe('1');
+	});
+
+	it('resolves string-valued options unchanged', () => {
+		const stringOptions = [
+			{ value: 'a', label: 'A' },
+			{ value: 'b', label: 'B' }
+		];
+		expect(resolveSelectValue('b', stringOptions)).toBe('b');
 	});
 });
