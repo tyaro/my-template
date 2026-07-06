@@ -1,0 +1,21 @@
+[package]
+name = "admin-template"
+description = "Banto admin template Tauri app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+name = "admin_template_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+banto-core = { path = "../../../crates/banto-core" }
+admin-template-core = { path = "../core" }
+tauri = { version = "2", features = [] }
+serde = { workspace = true }
+serde_json = { workspace = true }

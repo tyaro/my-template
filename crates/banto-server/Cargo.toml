@@ -1,0 +1,10 @@
+[package]
+name = "banto-server"
+description = "Banto server: embedded axum server for LAN browser access (M6)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+banto-core = { path = "../banto-core" }

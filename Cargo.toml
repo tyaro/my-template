@@ -1,0 +1,24 @@
+[workspace]
+resolver = "2"
+members = [
+  "crates/banto-core",
+  "crates/banto-storage",
+  "crates/banto-server",
+  "apps/admin-template/core",
+  "apps/admin-template/src-tauri",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "UNLICENSED"
+repository = "https://github.com/tyaro/my-template"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+sqlx = { version = "0.8", default-features = false }
+tokio = { version = "1" }
+banto-core = { path = "crates/banto-core" }
+banto-storage = { path = "crates/banto-storage" }
