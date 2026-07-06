@@ -25,6 +25,12 @@ export class ListResource<T> {
 
 	#resource: string;
 	#unsubscribe: () => void;
+	// Monotonically increasing request token (known race, M5): two rapid
+	// invalidates each start a `load()`; without a token, a slow-resolving
+	// earlier call can overwrite rows/totalCount/error written by a faster
+	// *later* call, resurrecting stale data. Only the response matching the
+	// current (latest) token is allowed to write state.
+	#requestToken = 0;
 
 	constructor(resource: string, options: CreateListResourceOptions = {}) {
 		this.#resource = resource;
@@ -36,20 +42,23 @@ export class ListResource<T> {
 
 	/** Fetch rows for the current `params`. Does not auto-run; call once from the component. */
 	async load(): Promise<void> {
+		const token = ++this.#requestToken;
 		this.loading = true;
 		this.error = null;
 		try {
 			const result = await getDataProvider().getList<T>(this.#resource, this.params);
+			if (token !== this.#requestToken) return; // a newer load() already superseded this one
 			this.rows = result.rows;
 			this.totalCount = result.totalCount;
 		} catch (err) {
+			if (token !== this.#requestToken) return;
 			const providerError = isProviderError(err)
 				? err
 				: new ProviderError({ kind: 'other', message: String(err) });
 			this.error = providerError;
 			notify('error', providerError.message);
 		} finally {
-			this.loading = false;
+			if (token === this.#requestToken) this.loading = false;
 		}
 	}
 

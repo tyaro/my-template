@@ -135,6 +135,18 @@ macro_rules! impl_list_query {
             /// Append only the `ORDER BY` clause. Unknown fields are
             /// silently skipped (spec: sorting by an unknown field is not
             /// an error).
+            ///
+            /// Both JS comparator implementations (`packages/grid-svelte/
+            /// src/core/sort.ts`, `packages/admin-core/src/providers/
+            /// inMemory.ts`) sort null/undefined last regardless of
+            /// direction; SQL otherwise inherits engine defaults (SQLite:
+            /// nulls first on ASC; Postgres: nulls first on DESC), which
+            /// would make server mode disagree with client mode on which
+            /// row is "first" whenever a sorted column has NULLs. Emitting
+            /// an explicit `NULLS LAST` on every entry, for both
+            /// directions, keeps all three implementations in agreement.
+            /// SQLite supports `NULLS LAST` since 3.30 (sqlx bundles a
+            /// newer version); Postgres supports it natively.
             pub fn append_order_by(
                 builder: &mut QueryBuilder<'_, $db>,
                 columns: &ColumnMap,
@@ -154,8 +166,8 @@ macro_rules! impl_list_query {
                     }
                     builder.push(*col);
                     builder.push(match dir {
-                        SortDirection::Asc => " ASC",
-                        SortDirection::Desc => " DESC",
+                        SortDirection::Asc => " ASC NULLS LAST",
+                        SortDirection::Desc => " DESC NULLS LAST",
                     });
                 }
             }
@@ -690,6 +702,87 @@ mod tests {
         };
         // No error, and no ORDER BY applied (rows come back in insertion order).
         assert_eq!(fetch_names(&pool, &params).await.len(), 5);
+    }
+
+    /// NULLs must sort last regardless of direction, matching the two JS
+    /// comparator implementations (spec drift fix, see `append_order_by`'s
+    /// doc comment).
+    #[tokio::test]
+    async fn nulls_sort_last_both_directions() {
+        let pool = SqlitePoolOptions::new()
+            .connect("sqlite::memory:")
+            .await
+            .expect("connect in-memory sqlite");
+        pool.execute("CREATE TABLE nullable_widgets (id INTEGER PRIMARY KEY, label TEXT NOT NULL, score REAL)")
+            .await
+            .expect("create table");
+        let rows: &[(i64, &str, Option<f64>)] = &[
+            (1, "has-score-low", Some(1.0)),
+            (2, "null-score", None),
+            (3, "has-score-high", Some(2.0)),
+        ];
+        for (id, label, score) in rows {
+            sqlx::query("INSERT INTO nullable_widgets (id, label, score) VALUES (?, ?, ?)")
+                .bind(id)
+                .bind(*label)
+                .bind(score)
+                .execute(&pool)
+                .await
+                .expect("insert row");
+        }
+
+        let columns = ColumnMap::new()
+            .column("id", "id")
+            .column("label", "label")
+            .column("score", "score");
+
+        async fn fetch_labels(
+            pool: &SqlitePool,
+            columns: &ColumnMap,
+            direction: SortDirection,
+        ) -> Vec<Option<String>> {
+            let mut builder = QueryBuilder::new("SELECT label, score FROM nullable_widgets");
+            apply_list_params(
+                &mut builder,
+                columns,
+                &ListParams {
+                    sort: vec![SortState {
+                        field: "score".to_string(),
+                        direction,
+                    }],
+                    ..Default::default()
+                },
+            )
+            .expect("apply params");
+            let rows = builder
+                .build()
+                .fetch_all(pool)
+                .await
+                .expect("query should succeed");
+            rows.into_iter()
+                .map(|r| r.get::<Option<String>, _>(0))
+                .collect()
+        }
+
+        let asc = fetch_labels(&pool, &columns, SortDirection::Asc).await;
+        assert_eq!(
+            asc,
+            vec![
+                Some("has-score-low".to_string()),
+                Some("has-score-high".to_string()),
+                Some("null-score".to_string()),
+            ]
+        );
+
+        let desc = fetch_labels(&pool, &columns, SortDirection::Desc).await;
+        assert_eq!(
+            desc,
+            vec![
+                Some("has-score-high".to_string()),
+                Some("has-score-low".to_string()),
+                Some("null-score".to_string()),
+            ]
+        );
     }
 
     #[tokio::test]

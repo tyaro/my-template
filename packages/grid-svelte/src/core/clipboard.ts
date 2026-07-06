@@ -12,9 +12,12 @@ type EditorOption = { value: string | number; label: string };
  * `column.format`: formatted display strings (e.g. "¥1,200", localized
  * dates) are lossy to re-parse, and would break paste round-trip fidelity
  * (copy a cell, paste it back into the same or another compatible column).
+ *
+ * `rows` may be sparse (server mode, spec §4.1, M5): a hole (`undefined`,
+ * not yet fetched) renders as an empty TSV cell, same as an out-of-range row.
  */
 export function rangeToTsv<TRow>(
-	rows: TRow[],
+	rows: (TRow | undefined)[],
 	orderedColumns: GridColumn<TRow>[],
 	range: CellRange,
 	getValue: (row: TRow, column: GridColumn<TRow>) => unknown

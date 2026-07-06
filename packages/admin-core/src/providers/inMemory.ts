@@ -23,7 +23,12 @@ function isNullish(value: unknown): boolean {
 	return value === null || value === undefined;
 }
 
+/**
+ * Must stay in sync with `packages/grid-svelte/src/core/filter.ts`'s
+ * `toComparable` (KNOWN DRIFT, M5 fix: this was missing the `Date` branch).
+ */
 function toComparable(value: unknown): number {
+	if (value instanceof Date) return value.getTime();
 	if (typeof value === 'number') return value;
 	if (typeof value === 'string') {
 		const asNumber = Number(value);
@@ -83,7 +88,13 @@ function applyFilters(
 	return rows.filter((row) => filters.every((filter) => matchOne(row, filter)));
 }
 
+/**
+ * Must stay in sync with `packages/grid-svelte/src/core/sort.ts`'s
+ * `compareNonNull` (KNOWN DRIFT, M5 fix: this was missing the `Date`
+ * branch).
+ */
 function compareNonNull(a: unknown, b: unknown): number {
+	if (a instanceof Date && b instanceof Date) return a.getTime() - b.getTime();
 	if (typeof a === 'number' && typeof b === 'number') return a - b;
 	if (typeof a === 'string' && typeof b === 'string') return a.localeCompare(b);
 	return String(a).localeCompare(String(b));

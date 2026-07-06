@@ -80,6 +80,55 @@ describe('createListResource', () => {
 		expect(list.rows).toHaveLength(1); // unchanged: no reload happened after dispose
 	});
 
+	it('a stale (out-of-order) resolution does not overwrite a newer load()', async () => {
+		// Known race (M5): two rapid invalidates each call load(); if the
+		// *first* call's promise resolves *after* the second one's, its
+		// stale result must not clobber the fresher rows/totalCount.
+		let resolveFirst!: (rows: { id: number; name: string }[]) => void;
+		let resolveSecond!: (rows: { id: number; name: string }[]) => void;
+		let call = 0;
+		const dataProvider: DataProvider = {
+			getList: <T>(): Promise<{ rows: T[]; totalCount: number }> =>
+				new Promise((resolve) => {
+					call++;
+					const settle = (rows: { id: number; name: string }[]) =>
+						resolve({ rows: rows as T[], totalCount: rows.length });
+					if (call === 1) {
+						resolveFirst = settle;
+					} else {
+						resolveSecond = settle;
+					}
+				}),
+			getOne: async () => {
+				throw new Error('unused');
+			},
+			create: async () => {
+				throw new Error('unused');
+			},
+			update: async () => {
+				throw new Error('unused');
+			},
+			deleteOne: async () => {}
+		};
+		initBanto({ dataProvider, authProvider, resources: [{ name: 'items-race', label: 'Items' }] });
+
+		const list = createListResource<{ id: number; name: string }>('items-race');
+		const firstLoad = list.load();
+		const secondLoad = list.load();
+
+		// Second (newer) call resolves first...
+		resolveSecond([{ id: 2, name: 'second' }]);
+		await secondLoad;
+		expect(list.rows).toEqual([{ id: 2, name: 'second' }]);
+
+		// ...then the first (stale) call resolves; it must be ignored.
+		resolveFirst([{ id: 1, name: 'first' }]);
+		await firstLoad;
+		expect(list.rows).toEqual([{ id: 2, name: 'second' }]);
+		expect(list.loading).toBe(false);
+		list.dispose();
+	});
+
 	it('load() catches provider errors, stores them, and notifies', async () => {
 		const seen: { kind: string; message: string }[] = [];
 		const dataProvider: DataProvider = {

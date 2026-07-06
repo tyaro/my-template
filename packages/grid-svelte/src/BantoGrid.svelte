@@ -12,7 +12,13 @@
 	 * pure decision logic it calls into (`prepareCommit`, TSV helpers) is
 	 * factored into `core/*.ts` and unit-tested there.
 	 */
-	import { DEFAULT_COLUMN_WIDTH, type CellEdit, type GridColumn } from './types';
+	import {
+		DEFAULT_COLUMN_WIDTH,
+		type CellEdit,
+		type FilterState,
+		type GridColumn,
+		type SortState
+	} from './types';
 	import { GridState } from './state.svelte';
 	import { CellSelection } from './selection.svelte';
 	import { getColumnValue, sortRows } from './core/sort';
@@ -23,14 +29,30 @@
 	import HeaderCell from './HeaderCell.svelte';
 
 	interface Props {
-		rows: TRow[];
+		/**
+		 * Client mode: the full row set (filter/sort/paging happen in this
+		 * component). Server mode (spec §4.1, M5): a SPARSE array aligned to
+		 * ABSOLUTE row indices - `rows[i]` is row `i`'s data once loaded,
+		 * `undefined` (a hole) otherwise; the caller (typically
+		 * `@banto/admin-core`'s windowed list resource) owns fetching and
+		 * writes into it as blocks arrive.
+		 */
+		rows: (TRow | undefined)[];
 		columns: GridColumn<TRow>[];
 		state?: GridState<TRow>;
 		getRowId: (row: TRow) => string | number;
 		rowHeight?: number;
+		/** Default 'client'. */
+		mode?: 'client' | 'server';
+		/** Server mode only: total row count backing the virtual scroller (NOT `rows.length`, which is just the sparse array's current extent). */
+		totalRows?: number;
 		onRowClick?: (row: TRow) => void;
 		onCellEdit?: (edit: CellEdit<TRow>) => void | Promise<void>;
 		onRangePaste?: (edits: CellEdit<TRow>[], info: { skipped: number }) => void | Promise<void>;
+		/** Server mode: fires after a sort toggle / filter apply / filter clear so the caller can re-fetch. */
+		onParamsChange?: (params: { sort: SortState[]; filters: FilterState[] }) => void;
+		/** Server mode: fires when the virtualized window's [start, end) actually changes (not on every scroll tick). */
+		onVisibleRangeChange?: (range: { start: number; end: number }) => void;
 	}
 
 	// Aliased to avoid clashing with the `$state` rune (a local binding named
@@ -42,9 +64,13 @@
 		state: externalState,
 		getRowId,
 		rowHeight,
+		mode = 'client',
+		totalRows,
 		onRowClick,
 		onCellEdit,
-		onRangePaste
+		onRangePaste,
+		onParamsChange,
+		onVisibleRangeChange
 	}: Props = $props();
 
 	// Created once per component instance. If the caller passes `state`, that
@@ -102,8 +128,19 @@
 		scrollTop = (event.currentTarget as HTMLDivElement).scrollTop;
 	}
 
-	const filtered = $derived(filterRows(rows, gridState.filters, columns));
-	const sorted = $derived(sortRows(filtered, gridState.sort, columns));
+	// Server mode (spec §4.1, M5): sort/filter already happened in the
+	// DataProvider, so `rows` (sparse, absolute-index-aligned) is used
+	// as-is - running it back through the client filter/sort pipeline would
+	// be wrong (holes aren't real rows, and the order is already final).
+	const sorted = $derived(
+		mode === 'server' ? rows : sortRows(filterRows(rows as TRow[], gridState.filters, columns), gridState.sort, columns)
+	);
+
+	// Row count driving the virtual scroller: server mode sizes from
+	// `totalRows` (the sparse array's current `.length` is just how much of
+	// it has been fetched so far, not the true total), client mode from the
+	// actual (filtered+sorted) row count.
+	const effectiveRowCount = $derived(mode === 'server' ? (totalRows ?? 0) : sorted.length);
 
 	const rowsViewportHeight = $derived(Math.max(0, viewportHeight - headerHeight));
 	const effectiveScrollTop = $derived(Math.max(0, scrollTop - headerHeight));
@@ -113,12 +150,39 @@
 			scrollTop: effectiveScrollTop,
 			viewportHeight: rowsViewportHeight,
 			rowHeight: gridState.rowHeight,
-			rowCount: sorted.length,
+			rowCount: effectiveRowCount,
 			overscan: OVERSCAN
 		})
 	);
 
-	const visibleRows = $derived(sorted.slice(windowResult.start, windowResult.end));
+	// In server mode, always render exactly (end - start) row slots even if
+	// the sparse array hasn't been extended that far yet - those slots
+	// render as placeholder ("loading") rows rather than being skipped.
+	const visibleRows = $derived(
+		mode === 'server'
+			? Array.from({ length: windowResult.end - windowResult.start }, (_, i) => rows[windowResult.start + i])
+			: sorted.slice(windowResult.start, windowResult.end)
+	);
+
+	// Server mode only: notify the caller when the virtualized window
+	// actually moves to a new [start, end) (not on every scroll tick -
+	// `windowResult` only changes when the computed window changes, and this
+	// guard further skips re-firing for an unchanged start/end pair).
+	let lastReportedRange: { start: number; end: number } | null = null;
+	$effect(() => {
+		if (mode !== 'server' || !onVisibleRangeChange) return;
+		const { start, end } = windowResult;
+		if (lastReportedRange && lastReportedRange.start === start && lastReportedRange.end === end) return;
+		lastReportedRange = { start, end };
+		onVisibleRangeChange({ start, end });
+	});
+
+	/** Server mode: called after a header sort toggle or filter apply/clear (spec §4.1, §4.3). */
+	function notifyParamsChange() {
+		if (mode === 'server') {
+			onParamsChange?.({ sort: gridState.sort, filters: gridState.filters });
+		}
+	}
 
 	const showSortPriority = $derived(gridState.sort.length > 1);
 
@@ -133,6 +197,11 @@
 		gridState.orderedColumns.reduce((sum, column) => sum + widthOf(column), 0)
 	);
 	const orderedFieldIds = $derived(gridState.orderedColumns.map((column) => column.id));
+
+	/** Keyed `{#each}` block key for a (possibly sparse-hole) visible row. */
+	function rowKeyFor(row: TRow | undefined, rowIndex: number): string | number {
+		return row === undefined ? `__hole_${rowIndex}` : getRowId(row);
+	}
 
 	function renderCell(column: GridColumn<TRow>, row: TRow): string {
 		const raw = getColumnValue(row, column);
@@ -237,6 +306,33 @@
 		}
 	}
 
+	/**
+	 * A11y fix (spec §4.7; known regression confirmed in the M3 review):
+	 * Enter/Space on the active cell previously did nothing useful when the
+	 * grid has editable columns and the active column is not editable - a
+	 * link column (e.g. the items page's "open" column, rendered via
+	 * `column.cell`) could only be reached with the mouse. Rather than
+	 * reimplementing routing here (BantoGrid doesn't own it), this finds the
+	 * `<a>` DOM node BantoGrid itself already rendered for the active cell
+	 * and issues a real click on it, so the browser's native anchor
+	 * navigation (or an app router that intercepts link clicks) takes it
+	 * from there - identical to what a mouse click on that link does. Only
+	 * ever finds an anchor for a currently-rendered row (guaranteed for the
+	 * active cell, since every navigation keeps it in view via
+	 * `scrollActiveIntoView`). Returns whether a link was found and clicked.
+	 */
+	function navigateActiveLink(): boolean {
+		if (!containerEl || !selection.active) return false;
+		const { rowIndex, field } = selection.active;
+		const cellEl = containerEl.querySelector<HTMLElement>(
+			`[data-cell-row="${rowIndex}"][data-cell-field="${CSS.escape(field)}"]`
+		);
+		const anchor = cellEl?.querySelector<HTMLAnchorElement>('a.cell-link');
+		if (!anchor) return false;
+		anchor.click();
+		return true;
+	}
+
 	function handleCellPointerDown(event: PointerEvent, rowIndex: number, field: string) {
 		if (event.button !== 0) return;
 		// Move real DOM focus to the grid container so keyboard navigation
@@ -294,7 +390,7 @@
 		if (editing) return;
 		if (!selection.active) return;
 
-		const rowCount = sorted.length;
+		const rowCount = effectiveRowCount;
 		const activeColumn = gridState.orderedColumns.find((c) => c.id === selection.active!.field);
 		const activeRow = sorted[selection.active!.rowIndex];
 
@@ -355,6 +451,11 @@
 					startEditing(selection.active.rowIndex, activeColumn, activeRow);
 				} else if (!hasEditableColumns && onRowClick) {
 					onRowClick(activeRow);
+				} else if (navigateActiveLink()) {
+					// A11y fix (spec §4.7, M3 review regression): the active
+					// column isn't editable but renders a link (e.g. the items
+					// page's "open" column) - navigate it, same as a mouse
+					// click on the rendered <a> would.
 				} else {
 					selection.moveActive(1, 0, false, rowCount, orderedFieldIds);
 					scrollActiveIntoView();
@@ -371,6 +472,16 @@
 				if (!hasEditableColumns && onRowClick && activeRow) {
 					event.preventDefault();
 					onRowClick(activeRow);
+				} else if (
+					activeColumn &&
+					activeRow &&
+					!isEditable(activeColumn, activeRow) &&
+					navigateActiveLink()
+				) {
+					// Same a11y fix as Enter above; editable columns are
+					// deliberately left alone (Space starts nothing for them
+					// today, unchanged).
+					event.preventDefault();
 				}
 				break;
 			default:
@@ -462,7 +573,7 @@
 		}
 		const closed = await commitValue(rowIndex, column, row, value);
 		if (closed && moveAfter) {
-			const rowCount = sorted.length;
+			const rowCount = effectiveRowCount;
 			if (moveAfter === 'down') selection.moveActive(1, 0, false, rowCount, orderedFieldIds);
 			else if (moveAfter === 'left') selection.moveActive(0, -1, false, rowCount, orderedFieldIds);
 			else selection.moveActive(0, 1, false, rowCount, orderedFieldIds);
@@ -607,7 +718,7 @@
 	bind:this={containerEl}
 	role="grid"
 	tabindex="0"
-	aria-rowcount={sorted.length + 1}
+	aria-rowcount={effectiveRowCount + 1}
 	aria-colcount={gridState.orderedColumns.length}
 	onscroll={handleScroll}
 	onkeydown={handleContainerKeydown}
@@ -630,6 +741,7 @@
 					onDragStart={handleDragStart}
 					onDragMove={handleDragMove}
 					onDragEnd={handleDragEnd}
+					onSortOrFilterChange={notifyParamsChange}
 				/>
 			{/each}
 		</div>
@@ -642,7 +754,7 @@
 			></div>
 		{/if}
 
-		{#if sorted.length === 0}
+		{#if effectiveRowCount === 0}
 			<div class="empty-row">データがありません</div>
 		{:else}
 			<div class="rows-viewport" role="presentation" style:height={`${windowResult.totalHeight}px`}>
@@ -651,8 +763,34 @@
 					role="rowgroup"
 					style:transform={`translateY(${windowResult.offsetY}px)`}
 				>
-					{#each visibleRows as row, i (getRowId(row))}
+					{#each visibleRows as row, i (rowKeyFor(row, windowResult.start + i))}
 						{@const rowIndex = windowResult.start + i}
+						{#if row === undefined}
+							<!--
+								Server mode (spec §4.1, M5): this absolute row
+								index hasn't been fetched yet (a hole in the
+								sparse `rows` array) - render an inert
+								placeholder at the right height so the
+								scrollbar/virtualization math stays correct,
+								with no click/edit interactions and its content
+								hidden from assistive tech (there's nothing
+								meaningful to announce yet).
+							-->
+							<div
+								class="row placeholder-row"
+								role="row"
+								aria-rowindex={rowIndex + 2}
+								aria-hidden="true"
+								style:grid-template-columns={templateColumns}
+								style:height={`${gridState.rowHeight}px`}
+							>
+								{#each gridState.orderedColumns as column, fieldIndex (column.id)}
+									<div class="cell placeholder-cell" style:justify-content={justifyFor(column.align)}>
+										{#if fieldIndex === 0}…{/if}
+									</div>
+								{/each}
+							</div>
+						{:else}
 						<div
 							class="row"
 							role="row"
@@ -763,6 +901,7 @@
 								</div>
 							{/each}
 						</div>
+						{/if}
 					{/each}
 				</div>
 			</div>
@@ -828,6 +967,19 @@
 
 	.row:hover {
 		background: color-mix(in srgb, var(--banto-primary) 6%, transparent);
+	}
+
+	/* Server mode (spec §4.1, M5): a not-yet-fetched sparse-array hole. */
+	.placeholder-row:hover {
+		background: none;
+	}
+
+	.placeholder-cell {
+		display: flex;
+		align-items: center;
+		padding: 0 0.6rem;
+		color: var(--banto-text-muted);
+		user-select: none;
 	}
 
 	.cell {
