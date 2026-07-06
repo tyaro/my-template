@@ -4,6 +4,7 @@
  * wire-compatible with the Rust `ListParams` type (spec §4.1, §10) so the
  * same class can drive server mode from M5 onward.
  */
+import { SvelteSet } from 'svelte/reactivity';
 import {
 	DEFAULT_COLUMN_WIDTH,
 	DEFAULT_MIN_WIDTH,
@@ -27,7 +28,10 @@ function isSerializedGridState(value: unknown): value is SerializedGridState {
 		Array.isArray(candidate.filters) &&
 		Array.isArray(candidate.order) &&
 		typeof candidate.widths === 'object' &&
-		candidate.widths !== null
+		candidate.widths !== null &&
+		// Optional/backward-compatible: a payload serialized before M5 Phase B
+		// (spec §4.3) has no `groupBy` at all - accept that as "no group".
+		(candidate.groupBy === undefined || candidate.groupBy === null || typeof candidate.groupBy === 'string')
 	);
 }
 
@@ -36,6 +40,19 @@ export class GridState<TRow = unknown> {
 	filters: FilterState[] = $state([]);
 	order: string[] = $state([]);
 	widths: Record<string, number> = $state({});
+	/** Client-mode-only group-by column id, or null for a flat view (spec §4.3). Server mode ignores this (see BantoGrid.svelte). */
+	groupBy: string | null = $state(null);
+	/**
+	 * Which group keys are currently collapsed. Deliberately a `SvelteSet`
+	 * (from `svelte/reactivity`), not a plain `Set` wrapped in `$state`:
+	 * Svelte 5's `$state` proxy only intercepts property/index assignment,
+	 * not `Set`/`Map` mutator methods, so `.add()`/`.delete()` on a plain
+	 * `$state(new Set())` would silently fail to notify readers. Mutated
+	 * in place (never reassigned) so the same reactive instance survives for
+	 * the object's lifetime. Not part of `serialize()`/`hydrate()` -
+	 * collapse state is ephemeral UI state, not persisted layout.
+	 */
+	collapsedGroups: Set<string> = new SvelteSet<string>();
 
 	readonly rowHeight: number;
 
@@ -111,6 +128,21 @@ export class GridState<TRow = unknown> {
 		this.filters = [];
 	}
 
+	/** Change (or clear, via null) the group-by column. Always resets collapse state (spec §4.3): stale keys from a different grouping are meaningless. */
+	setGroupBy(field: string | null): void {
+		this.groupBy = field;
+		this.collapsedGroups.clear();
+	}
+
+	/** Toggle one group's collapsed state by its key (spec §4.3). */
+	toggleGroup(key: string): void {
+		if (this.collapsedGroups.has(key)) {
+			this.collapsedGroups.delete(key);
+		} else {
+			this.collapsedGroups.add(key);
+		}
+	}
+
 	/** Resize a column, clamped to its configured min/max width. */
 	resizeColumn(field: string, width: number): void {
 		const column = this.#columns.find((entry) => entry.id === field);
@@ -137,13 +169,14 @@ export class GridState<TRow = unknown> {
 		this.order = current;
 	}
 
-	/** Serialize sort/filters/order/widths for persistence (spec §4.4). */
+	/** Serialize sort/filters/order/widths/groupBy for persistence (spec §4.4, §4.3). `collapsedGroups` is deliberately excluded - it's ephemeral. */
 	serialize(): string {
 		const payload: SerializedGridState = {
 			sort: this.sort,
 			filters: this.filters,
 			order: this.order,
-			widths: this.widths
+			widths: this.widths,
+			groupBy: this.groupBy
 		};
 		return JSON.stringify(payload);
 	}
@@ -159,6 +192,8 @@ export class GridState<TRow = unknown> {
 		if (!isSerializedGridState(parsed)) return;
 		this.sort = parsed.sort;
 		this.filters = parsed.filters;
+		this.groupBy = parsed.groupBy ?? null;
+		this.collapsedGroups.clear();
 		// Keep only ids that still exist in the current column set, but
 		// preserve the persisted order for those that do; append any new
 		// columns (added since the state was saved) at the end.

@@ -32,13 +32,28 @@
 		onDragStart: (columnId: string) => void;
 		onDragMove: (clientX: number) => void;
 		onDragEnd: () => void;
+		/**
+		 * Server mode (spec §4.1, M5): called right after a sort toggle or a
+		 * filter apply/clear mutates `state`. BantoGrid uses this to call its
+		 * own `onParamsChange` prop; client mode ignores it (GridState's own
+		 * reactivity already drives the client-side filter/sort pipeline).
+		 */
+		onSortOrFilterChange?: () => void;
 	}
 
 	// Aliased to avoid clashing with the `$state` rune (a local binding named
 	// exactly `state` makes the compiler treat `$state(...)` calls below as
 	// store-subscription syntax instead of rune usage).
-	let { column, state: gridState, width, showPriority, onDragStart, onDragMove, onDragEnd }: Props =
-		$props();
+	let {
+		column,
+		state: gridState,
+		width,
+		showPriority,
+		onDragStart,
+		onDragMove,
+		onDragEnd,
+		onSortOrFilterChange
+	}: Props = $props();
 
 	const DRAG_THRESHOLD_PX = 4;
 
@@ -84,6 +99,7 @@
 				onDragEnd();
 			} else if (sortable) {
 				gridState.toggleSort(column.id, upEvent.shiftKey);
+				onSortOrFilterChange?.();
 			}
 		}
 
@@ -122,6 +138,7 @@
 		if (event.key === 'Enter' || event.key === ' ') {
 			event.preventDefault();
 			gridState.toggleSort(column.id, event.shiftKey);
+			onSortOrFilterChange?.();
 		}
 	}
 
@@ -132,11 +149,13 @@
 	function applyFilter(filter: FilterState) {
 		gridState.setFilter(filter);
 		filterOpen = false;
+		onSortOrFilterChange?.();
 	}
 
 	function clearFilter() {
 		gridState.removeFilter(column.id);
 		filterOpen = false;
+		onSortOrFilterChange?.();
 	}
 </script>
 

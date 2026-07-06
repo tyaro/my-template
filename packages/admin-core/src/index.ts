@@ -33,6 +33,12 @@ export {
 export { onInvalidate, invalidate } from './invalidate';
 
 export { ListResource, createListResource, type CreateListResourceOptions } from './list.svelte';
+export {
+	WindowedListResource,
+	createWindowedListResource,
+	type CreateWindowedListResourceOptions,
+	type WindowedParams
+} from './windowed.svelte';
 export { FormResource, createFormResource, type SubmitResult } from './form.svelte';
 
 export {

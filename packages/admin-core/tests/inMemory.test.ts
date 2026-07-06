@@ -103,4 +103,49 @@ describe('createInMemoryDataProvider', () => {
 		const row = await provider.getOne<Item>('items', '2');
 		expect(row.name).toBe('Coffee');
 	});
+
+	// Comparator drift fix (M5): toComparable/compareNonNull must handle
+	// Date-valued fields the same way grid-svelte's core/filter.ts and
+	// core/sort.ts do.
+	interface DatedItem {
+		id: number;
+		label: string;
+		createdAt: Date;
+		[key: string]: unknown;
+	}
+
+	function seedDatedItems(): DatedItem[] {
+		return [
+			{ id: 1, label: 'oldest', createdAt: new Date('2024-01-01') },
+			{ id: 2, label: 'newest', createdAt: new Date('2024-06-01') },
+			{ id: 3, label: 'middle', createdAt: new Date('2024-03-01') }
+		];
+	}
+
+	it('sorts ascending by a Date-valued field', async () => {
+		const provider = createInMemoryDataProvider({ dated: { rows: seedDatedItems() } }, { latencyMs: 0 });
+		const result = await provider.getList<DatedItem>('dated', {
+			sort: [{ field: 'createdAt', direction: 'asc' }],
+			filters: []
+		});
+		expect(result.rows.map((row) => row.label)).toEqual(['oldest', 'middle', 'newest']);
+	});
+
+	it('sorts descending by a Date-valued field', async () => {
+		const provider = createInMemoryDataProvider({ dated: { rows: seedDatedItems() } }, { latencyMs: 0 });
+		const result = await provider.getList<DatedItem>('dated', {
+			sort: [{ field: 'createdAt', direction: 'desc' }],
+			filters: []
+		});
+		expect(result.rows.map((row) => row.label)).toEqual(['newest', 'middle', 'oldest']);
+	});
+
+	it('relational filter (gt) compares Date-valued fields by time', async () => {
+		const provider = createInMemoryDataProvider({ dated: { rows: seedDatedItems() } }, { latencyMs: 0 });
+		const result = await provider.getList<DatedItem>('dated', {
+			sort: [],
+			filters: [{ field: 'createdAt', op: 'gt', value: new Date('2024-02-01') }]
+		});
+		expect(result.rows.map((row) => row.label).sort()).toEqual(['middle', 'newest']);
+	});
 });

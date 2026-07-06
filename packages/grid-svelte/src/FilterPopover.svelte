@@ -33,8 +33,12 @@
 	// the popover unmounts on close, so a re-open re-reads the latest filter.
 	// svelte-ignore state_referenced_locally
 	let op: FilterOp = $state(current?.op ?? (filterType === 'number' ? 'eq' : 'contains'));
+	// Typed string | number: Svelte's bind:value on <input type="number">
+	// writes a NUMBER back into this state (or '' while the field is
+	// empty/invalid), so treating it as string-only made apply()'s
+	// .trim() throw for number columns.
 	// svelte-ignore state_referenced_locally
-	let value: string = $state(
+	let value: string | number = $state(
 		current?.value === undefined || current?.value === null ? '' : String(current.value)
 	);
 
@@ -61,12 +65,15 @@
 	function apply() {
 		// An empty value means "no filter": applying it would be a no-op for
 		// text and, worse, Number('') === 0 would silently filter by 0 for
-		// number columns. Treat it as clearing the filter instead.
-		if (value.trim() === '') {
+		// number columns. Treat it as clearing the filter instead. `value`
+		// may be a number here (bind:value on a number input), so normalize
+		// to a string before trimming.
+		const raw = typeof value === 'string' ? value : String(value);
+		if (raw.trim() === '') {
 			onClear();
 			return;
 		}
-		const parsedValue: unknown = filterType === 'number' ? Number(value) : value;
+		const parsedValue: unknown = filterType === 'number' ? Number(raw) : raw;
 		onApply({ field: column.id, op, value: parsedValue });
 	}
 </script>

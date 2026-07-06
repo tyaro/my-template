@@ -1,31 +1,18 @@
 <script lang="ts">
-	import { BantoGrid, type CellEdit, type GridColumn } from '@banto/grid-svelte';
-	import {
-		createListResource,
-		getDataProvider,
-		getResource,
-		invalidate,
-		isProviderError,
-		notify
-	} from '@banto/admin-core';
+	import { GridState, type CellEdit, type GridColumn } from '@banto/grid-svelte';
+	import { getDataProvider, getResource, invalidate, isProviderError, notify } from '@banto/admin-core';
 	import { goto } from '$app/navigation';
 	import type { Item } from '$lib/banto/sampleData';
+	import ItemsClientGrid, { type ItemRow } from './ItemsClientGrid.svelte';
+	import ItemsServerGrid from './ItemsServerGrid.svelte';
 
 	const resource = getResource('items');
 
-	// M2: fetch the whole dataset once (limit large enough to cover the demo
-	// 10k-row set) and let the grid keep doing client-side sort/filter/paging,
-	// same as M1. M5 moves sort/filter/paging into ListParams so
-	// InMemoryDataProvider (and later TauriDataProvider) do the work
-	// server-side instead.
-	const list = createListResource<Item>('items', {
-		initialParams: { pagination: { offset: 0, limit: 20_000 } }
-	});
-
-	$effect(() => {
-		void list.load();
-		return () => list.dispose();
-	});
+	// M5 Phase A (spec §4.1, §10): the items page demonstrates both grid data
+	// modes side by side via a toggle. Plain $state, not persisted - the
+	// default is サーバー so a fresh visit shows the real client->
+	// DataProvider->(Rust+SQLite in Tauri) path this milestone adds.
+	let mode: 'client' | 'server' = $state('server');
 
 	const columns: GridColumn<Item>[] = [
 		{
@@ -117,6 +104,47 @@
 		}
 	];
 
+	function columnById(id: string): GridColumn<Item> {
+		return columns.find((column) => column.id === id)!;
+	}
+
+	// M5 Phase B (spec §4.3) grouping demo: the CLIENT grid only gets an extra
+	// 「カテゴリ」 column (ItemsClientGrid derives it from `name`) plus
+	// per-column aggregates, so its own column array is built separately from
+	// the shared `columns` above (which stays exactly as-is for サーバー mode -
+	// grouping has no server-mode equivalent yet, spec §4.3).
+	const clientColumns: GridColumn<ItemRow>[] = [
+		columnById('open'),
+		{ ...columnById('id'), aggregate: 'count' },
+		columnById('name'),
+		{
+			id: 'category',
+			header: 'カテゴリ',
+			accessor: 'category',
+			width: 140,
+			filterable: true,
+			filterType: 'text',
+			groupable: true
+		},
+		{ ...columnById('price'), aggregate: 'avg' },
+		{ ...columnById('stock'), aggregate: 'sum' },
+		columnById('updatedAt')
+	];
+
+	// Owned here (not inside ItemsClientGrid) so the shared header's group-by
+	// <select> below can call `.setGroupBy(...)` directly - same wiring
+	// pattern ItemsServerGrid already uses for its own externally-owned
+	// GridState (spec §4.1/§4.3).
+	// svelte-ignore state_referenced_locally
+	const clientGridState = new GridState<ItemRow>(clientColumns);
+
+	type GroupByOption = '' | 'category' | 'updatedAt';
+
+	function handleGroupByChange(event: Event) {
+		const value = (event.currentTarget as HTMLSelectElement).value as GroupByOption;
+		clientGridState.setGroupBy(value === '' ? null : value);
+	}
+
 	function handleRowClick(item: Item) {
 		goto(`/items/${item.id}`);
 	}
@@ -141,6 +169,11 @@
 	// has no violation (rare - e.g. some other field was already invalid).
 	// This is a known limitation of the current onCellEdit contract, pending
 	// a richer (multi-field) error shape in a later milestone.
+	//
+	// Works unchanged in both grid modes: on success it calls invalidate(),
+	// which client mode picks up via ListResource's onInvalidate-triggered
+	// reload and server mode via WindowedListResource's onInvalidate-
+	// triggered refresh() (re-fetching just the currently visible blocks).
 	async function handleCellEdit(edit: CellEdit<Item>) {
 		try {
 			await getDataProvider().update('items', edit.rowId, mergedValues(edit.row, edit.field, edit.value));
@@ -193,27 +226,51 @@
 <div class="page">
 	<div class="page-header">
 		<h2>{resource.label}</h2>
-		<button type="button" onclick={() => goto('/items/new')}>新規作成</button>
+		<div class="page-header-actions">
+			<div class="mode-toggle" role="group" aria-label="表示モード切り替え">
+				<button type="button" class:active={mode === 'client'} onclick={() => (mode = 'client')}>
+					クライアント
+				</button>
+				<button type="button" class:active={mode === 'server'} onclick={() => (mode = 'server')}>
+					サーバー
+				</button>
+			</div>
+			<label class="group-by">
+				グループ化:
+				<select
+					disabled={mode !== 'client'}
+					title={mode !== 'client' ? 'グループ化はクライアントモードのみ' : undefined}
+					onchange={handleGroupByChange}
+				>
+					<option value="">グループなし</option>
+					<option value="category">カテゴリ</option>
+					<option value="updatedAt">更新日</option>
+				</select>
+			</label>
+			<button type="button" onclick={() => goto('/items/new')}>新規作成</button>
+		</div>
 	</div>
 
 	<p class="note">
-		{list.totalCount.toLocaleString()}件のデータを表示しています。Tauri実行時はRust+SQLite（1,000件シード）、ブラウザ実行時はInMemoryDataProvider（10,000件）を使用（M2
-		Phase B）。セル編集（ダブルクリック/Enter）・範囲選択・コピー&ペースト対応（M3）。
+		セル編集（ダブルクリック/Enter）・範囲選択・コピー&ペースト対応（M3）。「クライアント」は全件を一度に取得し、ソート/フィルタ/ページングをブラウザ側（BantoGrid）で行います。「サーバー」ではソート/フィルタ/ページングをDataProvider（ブラウザ=InMemory、Tauri=Rust+SQLite）が実行し、行はスクロールに応じてブロック単位で遅延取得します（M5）。M5:
+		クライアントモードでグループ化・集計に対応（グループ化はクライアントモードのみ。サーバーモードでのグループ化は今後の対応予定です）。
 	</p>
 
-	{#if list.loading && list.rows.length === 0}
-		<p class="loading">読み込み中…</p>
+	{#if mode === 'client'}
+		<ItemsClientGrid
+			columns={clientColumns}
+			state={clientGridState}
+			onRowClick={handleRowClick}
+			onCellEdit={handleCellEdit}
+			onRangePaste={handleRangePaste}
+		/>
 	{:else}
-		<div class="grid-wrap">
-			<BantoGrid
-				rows={list.rows}
-				{columns}
-				getRowId={(item) => item.id}
-				onRowClick={handleRowClick}
-				onCellEdit={handleCellEdit}
-				onRangePaste={handleRangePaste}
-			/>
-		</div>
+		<ItemsServerGrid
+			{columns}
+			onRowClick={handleRowClick}
+			onCellEdit={handleCellEdit}
+			onRangePaste={handleRangePaste}
+		/>
 	{/if}
 </div>
 
@@ -231,11 +288,18 @@
 		justify-content: space-between;
 		flex: 0 0 auto;
 		margin-bottom: 0.5rem;
+		gap: 1rem;
 	}
 
 	.page-header h2 {
 		margin: 0;
 		font-size: 1.1rem;
+	}
+
+	.page-header-actions {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
 	}
 
 	.page-header button {
@@ -252,22 +316,58 @@
 		background: var(--banto-primary-hover);
 	}
 
+	.mode-toggle {
+		display: inline-flex;
+		border: 1px solid var(--banto-border);
+		border-radius: var(--banto-radius);
+		overflow: hidden;
+	}
+
+	.mode-toggle button {
+		padding: 0.4rem 0.8rem;
+		border: none;
+		background: var(--banto-surface);
+		color: var(--banto-text-muted);
+		font-size: 0.8rem;
+		font-weight: 600;
+		cursor: pointer;
+	}
+
+	.mode-toggle button:hover {
+		background: color-mix(in srgb, var(--banto-primary) 8%, transparent);
+	}
+
+	.mode-toggle button.active {
+		background: var(--banto-primary);
+		color: var(--banto-text-inverse);
+	}
+
+	.group-by {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.4rem;
+		font-size: 0.8rem;
+		color: var(--banto-text-muted);
+	}
+
+	.group-by select {
+		padding: 0.35rem 0.5rem;
+		border: 1px solid var(--banto-border);
+		border-radius: var(--banto-radius);
+		background: var(--banto-surface);
+		color: var(--banto-text);
+		font-size: 0.8rem;
+	}
+
+	.group-by select:disabled {
+		cursor: not-allowed;
+		opacity: 0.6;
+	}
+
 	.note {
 		flex: 0 0 auto;
 		margin: 0 0 0.75rem;
 		color: var(--banto-text-muted);
 		font-size: 0.8rem;
-	}
-
-	.loading {
-		flex: 1;
-		display: grid;
-		place-items: center;
-		color: var(--banto-text-muted);
-	}
-
-	.grid-wrap {
-		flex: 1;
-		min-height: 0;
 	}
 </style>
