@@ -24,7 +24,6 @@
 		collectPanelIds,
 		createDockState,
 		type DockLayout,
-		type FloatingWindowDef,
 		type PanelContent
 	} from '@banto/dock-svelte';
 	import type { Item } from '$lib/banto/sampleData';
@@ -38,6 +37,10 @@
 		updatesByMonth,
 		weekdayMonthHeat
 	} from '$lib/banto/dashboard';
+	import { PANEL_DEFS } from '$lib/banto/panels';
+	import { isTauri } from '$lib/banto/setup';
+	import { listenPanelClosed, openPanelWindow } from '$lib/banto/popout';
+	import DashboardPanel from '$lib/components/DashboardPanel.svelte';
 
 	const STOCK_TARGET = 3_000_000;
 
@@ -75,19 +78,16 @@
 	 */
 	const DOCK_STORAGE_KEY = 'banto.dock.dashboard';
 
-	const DOCK_WINDOW_DEFS: FloatingWindowDef[] = [
-		{ id: 'monthly', title: '月別更新件数', icon: '📈', width: 420, height: 320 },
-		{ id: 'priceBuckets', title: '価格帯分布', icon: '🥧', width: 360, height: 320 },
-		{ id: 'memo', title: 'メモ', icon: '📝', width: 320, height: 220 }
-	];
-
+	// Panel id/title/icon defs moved to $lib/banto/panels.ts (spec §5.3 v2):
+	// shared with the standalone routes/panel/[id] route a popped-out panel
+	// renders as, which has no access to this page's own locals.
 	const PANEL_META: Record<string, { title: string; icon: string }> = Object.fromEntries(
-		DOCK_WINDOW_DEFS.map((d) => [d.id, { title: d.title, icon: d.icon! }])
+		PANEL_DEFS.map((d) => [d.id, { title: d.title, icon: d.icon! }])
 	);
 
 	/** The seeded default: monthly | priceBuckets docked side by side, メモ floating. `hostW/H` clamp the floating window into view. */
 	function defaultLayout(hostW: number, hostH: number): DockLayout {
-		const memoDef = DOCK_WINDOW_DEFS.find((d) => d.id === 'memo')!;
+		const memoDef = PANEL_DEFS.find((d) => d.id === 'memo')!;
 		const memo = clampWindowToHost(
 			{
 				id: 'memo',
@@ -183,12 +183,46 @@
 			dock.close(id);
 			return;
 		}
-		const def = DOCK_WINDOW_DEFS.find((d) => d.id === id);
+		const def = PANEL_DEFS.find((d) => d.id === id);
 		if (def) {
 			dock.ensureWindow(def, dockHostW, dockHostH);
 			dock.open(id);
 		}
 	}
+
+	/**
+	 * v2 pop-out (spec §5.3, Tauri only): dragging a panel out via
+	 * dock-svelte's `onPopOut` affordance (⧉ button) opens it as a REAL
+	 * native window (`panel_open` Tauri command -> routes/panel/[id]) instead
+	 * of a pseudo-window. The panel is hidden from THIS dock - undocked (if
+	 * docked) then closed (if floating) - but its floating geometry is
+	 * preserved, so `dock.open(id)` (below, on window-close) restores it
+	 * exactly where it was. `undefined` in browser mode: DockHost then
+	 * renders no pop-out button at all (see its doc comment), so this is
+	 * never called there - `isTauri()` guards it anyway as a second line of
+	 * defense.
+	 */
+	const onPopOut = isTauri()
+		? (content: PanelContent) => {
+				if (isDocked(content.id)) dock.undockPanel(content.id);
+				dock.close(content.id);
+				void openPanelWindow(content);
+			}
+		: undefined;
+
+	// Round-trip contract (spec §5.3 v2): when a popped-out panel's native
+	// window is closed, src-tauri emits `banto://panel-closed` with that
+	// panel's id (see popout.ts's listenPanelClosed) - `dock.open` brings it
+	// back as a floating pseudo-window at its preserved geometry. (If the
+	// panel had been docked, `onPopOut` above already demoted it to floating
+	// via `undockPanel` before closing it - same permanent docked->floating
+	// transition `DockedTree`'s own ✕ button uses - so it does NOT return to
+	// the docked tree; this mirrors "closing a docked panel" everywhere else
+	// in this package.) No-op in browser mode.
+	$effect(() => {
+		if (!isTauri()) return;
+		return listenPanelClosed((id) => dock.open(id));
+	});
 </script>
 
 <div class="page">
@@ -334,7 +368,7 @@
 						ドッキングレイアウトのデモです（M8、@banto/dock-svelte）。タイトルバーやタブをドラッグしてパネルを分割・タブ化・再配置でき、ペイン中央にドロップするとタブ、端にドロップすると分割になります。タブを外側にドラッグするとフローティング化します。仕切りのドラッグでサイズ変更、レイアウトは自動保存されます。
 					</p>
 					<div class="dock-toolbar" role="toolbar" aria-label="ドックウィンドウ操作">
-						{#each DOCK_WINDOW_DEFS as def (def.id)}
+						{#each PANEL_DEFS as def (def.id)}
 							<button
 								type="button"
 								class="dock-toggle"
@@ -351,7 +385,7 @@
 						<button type="button" class="dock-reset" onclick={resetDockLayout}>リセット</button>
 					</div>
 					<div class="dock-wrapper" bind:clientWidth={dockHostW} bind:clientHeight={dockHostH}>
-						<DockHost {dock} panel={dockPanel} />
+						<DockHost {dock} panel={dockPanel} {onPopOut} />
 					</div>
 				</section>
 			</div>
@@ -359,37 +393,16 @@
 	</div>
 
 {#snippet dockPanel(content: PanelContent)}
-	{#if content.id === 'monthly'}
-		<div class="dock-panel" bind:clientHeight={panelHeights['monthly']}>
-			<LineChart
-				data={monthCounts}
-				x={(row) => row.month}
-				series={[{ id: 'count', label: '更新件数', y: (row) => row.count }]}
-				area
-				label="月別更新件数の面グラフ"
-				height={chartHeight('monthly')}
-				formatY={(n) => n.toLocaleString()}
-			/>
-		</div>
-	{:else if content.id === 'priceBuckets'}
-		<div class="dock-panel" bind:clientHeight={panelHeights['priceBuckets']}>
-			<PieChart
-				data={buckets}
-				category={(row) => row.bucket}
-				value={(row) => row.count}
-				donut
-				label="価格帯分布のドーナツグラフ"
-				height={chartHeight('priceBuckets')}
-				formatValue={countLabel}
-			/>
-		</div>
-	{:else}
-		<div class="dock-panel dock-memo">
-			<p>
-				タイトルバー/タブをドラッグして分割・タブ化・再配置、仕切りでサイズ変更を試せます。レイアウトは自動保存されます。
-			</p>
-		</div>
-	{/if}
+	<!--
+		Body extracted to DashboardPanel.svelte (spec §5.3 v2 pop-out): the
+		SAME component renders this panel's content standalone at
+		routes/panel/[id] once popped out into a real Tauri window, so the
+		markup can't depend on anything from this page beyond the measured
+		height below.
+	-->
+	<div class="dock-panel" bind:clientHeight={panelHeights[content.id]}>
+		<DashboardPanel id={content.id} height={chartHeight(content.id)} />
+	</div>
 {/snippet}
 
 <style>
@@ -534,12 +547,5 @@
 		height: 100%;
 		box-sizing: border-box;
 		padding: 0.75rem;
-	}
-
-	.dock-memo p {
-		margin: 0;
-		color: var(--banto-text-muted);
-		font-size: 0.85rem;
-		line-height: 1.6;
 	}
 </style>

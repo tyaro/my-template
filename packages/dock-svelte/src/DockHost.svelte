@@ -37,9 +37,24 @@
 	interface Props {
 		dock: DockState;
 		panel: Snippet<[PanelContent]>;
+		/**
+		 * Optional pop-out affordance (spec §5.3 v2: "ウィンドウ分離"モード).
+		 * When provided, both `DockWindow` titlebars and `DockedTree` pane
+		 * titlebars/tab strips render an extra ⧉ button BEFORE the close
+		 * button, calling this with that panel's `PanelContent` on click. This
+		 * package has zero Tauri knowledge and no opinion on what "popping
+		 * out" means - it just forwards the click. The caller (the app) is
+		 * expected to hide/undock the panel and open a real native window for
+		 * it, then call `dock.open(id)` again once that window closes -
+		 * see apps/admin-template's dashboard page for the reference wiring.
+		 * When this prop is omitted (e.g. plain-browser mode), nothing extra
+		 * renders at all - zero layout/behavior change from before this prop
+		 * existed.
+		 */
+		onPopOut?: (content: PanelContent) => void;
 	}
 
-	let { dock, panel }: Props = $props();
+	let { dock, panel, onPopOut }: Props = $props();
 
 	let hostW: number = $state(0);
 	let hostH: number = $state(0);
@@ -57,12 +72,12 @@
 <div class="dock-host" data-dock-host bind:this={hostEl} bind:clientWidth={hostW} bind:clientHeight={hostH}>
 	{#if dock.layout.docked}
 		<div class="docked-layer">
-			<DockedTree node={dock.layout.docked} {dock} {panel} />
+			<DockedTree node={dock.layout.docked} {dock} {panel} {onPopOut} />
 		</div>
 	{/if}
 
 	{#each openWindows as win, index (win.id)}
-		<DockWindow {win} {dock} {hostW} {hostH} frontmost={index === openWindows.length - 1} {panel} />
+		<DockWindow {win} {dock} {hostW} {hostH} frontmost={index === openWindows.length - 1} {panel} {onPopOut} />
 	{/each}
 
 	{#if drag.state}
