@@ -44,9 +44,11 @@
 		node: DockNode;
 		dock: DockState;
 		panel: Snippet<[PanelContent]>;
+		/** Pop-out affordance (spec §5.3 v2), forwarded unchanged from `DockHost` - see its doc comment. Absent in browser mode (no button rendered). */
+		onPopOut?: (content: PanelContent) => void;
 	}
 
-	let { node, dock, panel }: Props = $props();
+	let { node, dock, panel, onPopOut }: Props = $props();
 
 	const DRAG_THRESHOLD_PX = 5;
 	const drag = getDragController();
@@ -158,6 +160,17 @@
 				<span class="icon" aria-hidden="true">{node.icon}</span>
 			{/if}
 			<span class="title">{node.title}</span>
+			{#if onPopOut}
+				<button
+					type="button"
+					class="popout-btn"
+					aria-label={`${node.title}を別ウィンドウで開く`}
+					onpointerdown={(event) => event.stopPropagation()}
+					onclick={() => onPopOut?.(node)}
+				>
+					⧉
+				</button>
+			{/if}
 			<button
 				type="button"
 				class="close-btn"
@@ -193,6 +206,17 @@
 					{/if}
 					<span class="title">{child.title}</span>
 					{#if i === node.activeIndex}
+						{#if onPopOut}
+							<button
+								type="button"
+								class="popout-btn"
+								aria-label={`${child.title}を別ウィンドウで開く`}
+								onpointerdown={(event) => event.stopPropagation()}
+								onclick={() => onPopOut?.(child)}
+							>
+								⧉
+							</button>
+						{/if}
 						<button
 							type="button"
 							class="close-btn"
@@ -222,7 +246,7 @@
 	>
 		{#each node.children as child, i (child.id)}
 			<div class="split-child" style:flex-grow={node.sizes[i] ?? 0} style:flex-basis="0%">
-				<DockedTree node={child} {dock} {panel} />
+				<DockedTree node={child} {dock} {panel} {onPopOut} />
 			</div>
 			{#if i < node.children.length - 1}
 				<!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -314,7 +338,8 @@
 		white-space: nowrap;
 	}
 
-	.close-btn {
+	.close-btn,
+	.popout-btn {
 		flex: 0 0 auto;
 		width: 20px;
 		height: 20px;
@@ -335,7 +360,13 @@
 		color: var(--banto-danger);
 	}
 
-	.close-btn:focus-visible {
+	.popout-btn:hover {
+		background: color-mix(in srgb, var(--banto-primary) 15%, transparent);
+		color: var(--banto-primary);
+	}
+
+	.close-btn:focus-visible,
+	.popout-btn:focus-visible {
 		outline: none;
 		box-shadow: var(--banto-focus-ring);
 	}

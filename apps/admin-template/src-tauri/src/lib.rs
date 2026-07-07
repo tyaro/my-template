@@ -424,6 +424,61 @@ async fn settings_set(
     state.settings.set(&key, &value).await
 }
 
+/// Pop a dock panel out into a REAL native window (spec §5.3 v2 - the
+/// "ウィンドウ分離" mode the v1 doc comment left as a future extension
+/// point). Thin by design: this is the ONLY Tauri-aware half of the pop-out
+/// feature - everything else (deciding when to call it, restoring the panel
+/// to the dock afterward) lives in testable frontend layers
+/// (`packages/dock-svelte`, `apps/admin-template/src/lib/banto/popout.ts`).
+///
+/// One native window per panel id, labeled `panel-{id}` - calling this again
+/// for an already-open panel just focuses the existing window instead of
+/// opening a second one. `WebviewUrl::App("panel/{id}")` points at the
+/// standalone `routes/panel/[id]` SvelteKit route (no sidebar/header shell,
+/// its own auth check - see that route's doc comment), the SAME static
+/// build the main window's webview loads (spec §8.1's `adapter-static` SPA
+/// build).
+///
+/// On close (`WindowEvent::Destroyed`), emits `banto://panel-closed` to the
+/// main window with the panel id so the dashboard can `dock.open(id)` it
+/// back into view (`popout.ts::listenPanelClosed`) - the other half of this
+/// round trip.
+#[tauri::command]
+async fn panel_open(app: tauri::AppHandle, id: String, title: String) -> Result<(), BantoError> {
+    let label = format!("panel-{id}");
+
+    if let Some(window) = app.get_webview_window(&label) {
+        let _ = window.set_focus();
+        return Ok(());
+    }
+
+    let window = tauri::WebviewWindowBuilder::new(
+        &app,
+        label.clone(),
+        tauri::WebviewUrl::App(format!("panel/{id}").into()),
+    )
+    .title(title)
+    .inner_size(560.0, 420.0)
+    .min_inner_size(320.0, 240.0)
+    .build()
+    .map_err(|err| BantoError::Other(err.to_string()))?;
+
+    // Cloned into the closure: `on_window_event`'s handler is `'static`, so
+    // it cannot borrow `app`/`id` from this function's stack frame.
+    let app_for_event = app.clone();
+    let closed_id = id.clone();
+    window.on_window_event(move |event| {
+        if let tauri::WindowEvent::Destroyed = event {
+            // Best-effort: the main window may already be gone (app
+            // shutting down) - nothing useful to do with an emit failure
+            // here either way.
+            let _ = app_for_event.emit_to("main", "banto://panel-closed", closed_id.clone());
+        }
+    });
+
+    Ok(())
+}
+
 pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
@@ -527,6 +582,7 @@ pub fn run() {
             server_apply,
             settings_get,
             settings_set,
+            panel_open,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

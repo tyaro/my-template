@@ -34,9 +34,11 @@
 		hostH: number;
 		frontmost: boolean;
 		panel: Snippet<[PanelContent]>;
+		/** Pop-out affordance (spec §5.3 v2), forwarded unchanged from `DockHost` - see its doc comment. Absent in browser mode (no button rendered). */
+		onPopOut?: (content: PanelContent) => void;
 	}
 
-	let { win, dock, hostW, hostH, frontmost, panel }: Props = $props();
+	let { win, dock, hostW, hostH, frontmost, panel, onPopOut }: Props = $props();
 
 	const DRAG_THRESHOLD_PX = 5;
 	const drag = getDragController();
@@ -171,6 +173,17 @@
 				<span class="icon" aria-hidden="true">{win.icon}</span>
 			{/if}
 			<span class="title">{win.title}</span>
+			{#if onPopOut}
+				<button
+					type="button"
+					class="popout-btn"
+					aria-label={`${win.title}を別ウィンドウで開く`}
+					onpointerdown={(event) => event.stopPropagation()}
+					onclick={() => onPopOut?.(win)}
+				>
+					⧉
+				</button>
+			{/if}
 			<button
 				type="button"
 				class="close-btn"
@@ -249,7 +262,8 @@
 		white-space: nowrap;
 	}
 
-	.close-btn {
+	.close-btn,
+	.popout-btn {
 		flex: 0 0 auto;
 		width: 22px;
 		height: 22px;
@@ -270,7 +284,13 @@
 		color: var(--banto-danger);
 	}
 
-	.close-btn:focus-visible {
+	.popout-btn:hover {
+		background: color-mix(in srgb, var(--banto-primary) 15%, transparent);
+		color: var(--banto-primary);
+	}
+
+	.close-btn:focus-visible,
+	.popout-btn:focus-visible {
 		outline: none;
 		box-shadow: var(--banto-focus-ring);
 	}
