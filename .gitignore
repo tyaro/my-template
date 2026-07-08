@@ -150,3 +150,6 @@ apps/admin-template/build/
 
 # Tauri generated schemas
 apps/admin-template/src-tauri/gen/
+
+# Editor settings (personal)
+.vscode/

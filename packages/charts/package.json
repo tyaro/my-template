@@ -5,7 +5,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/tyaro/my-template.git",
+    "url": "https://github.com/tyaro/banto.git",
     "directory": "packages/charts"
   },
   "type": "module",

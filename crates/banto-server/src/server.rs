@@ -66,7 +66,17 @@ pub async fn start(config: ServerConfig, router: Router) -> Result<RunningServer
 
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
     let join_handle = tokio::spawn(async move {
-        let server = axum::serve(listener, router.into_make_service());
+        // `into_make_service_with_connect_info::<SocketAddr>()` (rather than
+        // the plain `into_make_service()`) makes each connection's peer
+        // address available to handlers via `ConnectInfo<SocketAddr>` - the
+        // login rate limiter (`auth::login_handler`, spec §11.2) keys its
+        // lockout on client IP + username. Handlers extract it as
+        // `Option<ConnectInfo<..>>`, so this is purely additive: routers
+        // served some other way still work, just with a username-only key.
+        let server = axum::serve(
+            listener,
+            router.into_make_service_with_connect_info::<SocketAddr>(),
+        );
         let graceful = server.with_graceful_shutdown(async {
             let _ = shutdown_rx.await;
         });

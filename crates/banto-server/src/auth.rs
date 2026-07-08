@@ -5,11 +5,33 @@
 //! is responsible for attaching `Authorization: Bearer <token>` on every
 //! subsequent request (mirrors `HttpDataProvider`'s planned wire contract,
 //! spec §3.2/§11.1).
+//!
+//! Two hardening measures live here beyond plain "is this token known":
+//!
+//! - **Token expiry** ([`TokenPolicy`]): tokens carry an issue time and a
+//!   last-used time and are invalidated once they exceed either an absolute
+//!   lifetime (default 8h) or an idle timeout (default 1h, refreshed on every
+//!   `verify`/`identity_for`). Without this a session lives forever until an
+//!   explicit `logout`, and abandoned sessions accumulate in memory unbounded.
+//! - **Login rate limiting** ([`RateLimitPolicy`]): consecutive failed
+//!   `POST /api/auth/login` attempts, keyed by client IP + username, trip a
+//!   short lockout (default: 5 failures -> 60s). Because credential
+//!   verification runs a deliberately expensive argon2id hash (spec §8.2), an
+//!   unthrottled login endpoint is also a CPU-exhaustion DoS vector, not just
+//!   a brute-force one.
+//!
+//! Expired tokens and stale failure records are reaped lazily (on lookup) and
+//! opportunistically (a cheap sweep on each write); there is deliberately no
+//! background reaper task, to keep this a plain library type with no owned
+//! runtime.
 
 use std::collections::HashMap;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::{Arc, RwLock};
+use std::time::{Duration, Instant};
 
-use axum::extract::{Request, State};
+use axum::extract::{ConnectInfo, FromRequestParts, Request, State};
+use axum::http::request::Parts;
 use axum::http::{header, StatusCode};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
@@ -46,21 +68,185 @@ pub struct Identity {
 pub type CredentialVerifier =
     Arc<dyn Fn(String, String) -> BoxFuture<'static, Option<Identity>> + Send + Sync>;
 
+/// Session-token lifetime policy (spec §11.2). Both bounds are enforced on
+/// every lookup ([`AuthState::verify`]/[`AuthState::identity_for`]):
+///
+/// - `absolute_ttl`: hard cap measured from the token's issue time; refresh
+///   activity cannot extend a token past this.
+/// - `idle_ttl`: sliding window measured from the token's last use; each
+///   successful lookup resets it, so an actively-used session stays alive
+///   (up to `absolute_ttl`) while an abandoned one lapses.
+#[derive(Debug, Clone, Copy)]
+pub struct TokenPolicy {
+    pub absolute_ttl: Duration,
+    pub idle_ttl: Duration,
+}
+
+impl Default for TokenPolicy {
+    /// 8h absolute / 1h idle - a full working session, but a laptop left
+    /// open overnight (or a walked-away-from browser) does not stay logged
+    /// in indefinitely.
+    fn default() -> Self {
+        Self {
+            absolute_ttl: Duration::from_secs(8 * 60 * 60),
+            idle_ttl: Duration::from_secs(60 * 60),
+        }
+    }
+}
+
+/// Login failed-attempt throttling policy (spec §11.2). Failures are counted
+/// per key (client IP + username, see [`rate_limit_key`]); reaching
+/// `max_failures` consecutive failures starts a `lockout`-long window during
+/// which further attempts are rejected without even running the (expensive)
+/// credential check. A single success clears the counter.
+#[derive(Debug, Clone, Copy)]
+pub struct RateLimitPolicy {
+    pub max_failures: u32,
+    pub lockout: Duration,
+}
+
+impl Default for RateLimitPolicy {
+    /// 5 strikes, then a 60s cool-off: long enough to make online
+    /// brute-forcing / argon2 CPU-flooding impractical, short enough that a
+    /// user who genuinely fat-fingered their password five times is not
+    /// locked out for long.
+    fn default() -> Self {
+        Self {
+            max_failures: 5,
+            lockout: Duration::from_secs(60),
+        }
+    }
+}
+
+/// Result of a rate-limited login attempt ([`AuthState::login_rate_limited`]).
+/// The three variants map onto the three login-handler responses: a bearer
+/// token, a plain "wrong credentials" 200, or a 429 lockout.
+#[derive(Debug)]
+pub enum LoginOutcome {
+    /// Credentials verified; carries a freshly-issued bearer token.
+    Success(String),
+    /// Credentials rejected (and this failure was counted toward the lockout
+    /// threshold).
+    InvalidCredentials,
+    /// The key is currently locked out; `retry_after` is how long until it
+    /// may try again. The credential check was NOT run.
+    RateLimited { retry_after: Duration },
+}
+
+/// One stored session token: the identity it authenticates plus the two
+/// timestamps [`TokenPolicy`] is evaluated against. Times are measured on
+/// [`Clock`]'s monotonic scale (a `Duration` since the state was created).
+struct TokenRecord {
+    identity: Identity,
+    issued_at: Duration,
+    last_used: Duration,
+}
+
+impl TokenRecord {
+    /// Has this token exceeded either bound of `policy` as of `now`?
+    fn is_expired(&self, now: Duration, policy: &TokenPolicy) -> bool {
+        now.saturating_sub(self.issued_at) >= policy.absolute_ttl
+            || now.saturating_sub(self.last_used) >= policy.idle_ttl
+    }
+}
+
+/// Per-key failed-login bookkeeping for [`RateLimitPolicy`].
+struct FailureRecord {
+    /// Consecutive failures since the last success/reset.
+    count: u32,
+    /// End of the active lockout, if the threshold has been reached.
+    locked_until: Option<Duration>,
+    /// Time of the most recent failure, used to age out stale entries so the
+    /// map does not grow without bound and so a long-ago streak does not
+    /// count against a much later attempt.
+    last_failure: Duration,
+}
+
+impl FailureRecord {
+    /// Should this record be kept during a sweep as of `now`? Keep it while a
+    /// lockout is still in force, or while its last failure is recent enough
+    /// (within one `lockout` window) to still count toward the streak.
+    fn is_live(&self, now: Duration, policy: &RateLimitPolicy) -> bool {
+        if let Some(until) = self.locked_until {
+            if until > now {
+                return true;
+            }
+        }
+        now.saturating_sub(self.last_failure) < policy.lockout
+    }
+}
+
+/// Monotonic clock injected into [`AuthState`] so tests can advance time
+/// deterministically instead of sleeping. Production always uses
+/// [`Clock::real`], which reports elapsed time since construction; the
+/// manually-advanced variant is only constructible under `#[cfg(test)]`.
+struct Clock {
+    /// Anchor captured at construction; the real clock reports time relative
+    /// to this so `now()` is a small monotonic `Duration`.
+    base: Instant,
+    /// When present, `now()` returns this stored value (advanced by tests)
+    /// instead of reading the wall clock.
+    #[cfg(test)]
+    frozen: Option<RwLock<Duration>>,
+}
+
+impl Clock {
+    fn real() -> Self {
+        Self {
+            base: Instant::now(),
+            #[cfg(test)]
+            frozen: None,
+        }
+    }
+
+    /// Current time on this clock's monotonic scale.
+    fn now(&self) -> Duration {
+        #[cfg(test)]
+        if let Some(frozen) = &self.frozen {
+            return *frozen.read().expect("auth clock lock poisoned");
+        }
+        self.base.elapsed()
+    }
+
+    #[cfg(test)]
+    fn frozen() -> Self {
+        Self {
+            base: Instant::now(),
+            frozen: Some(RwLock::new(Duration::ZERO)),
+        }
+    }
+
+    #[cfg(test)]
+    fn advance(&self, by: Duration) {
+        let frozen = self
+            .frozen
+            .as_ref()
+            .expect("advance() called on a real clock");
+        *frozen.write().expect("auth clock lock poisoned") += by;
+    }
+}
+
 struct Inner {
-    tokens: RwLock<HashMap<String, Identity>>,
+    tokens: RwLock<HashMap<String, TokenRecord>>,
+    failures: RwLock<HashMap<String, FailureRecord>>,
     verify_credentials: CredentialVerifier,
+    token_policy: TokenPolicy,
+    rate_limit: RateLimitPolicy,
+    clock: Clock,
 }
 
 /// Shared, cloneable auth state: an in-memory map of valid bearer tokens to
-/// the [`Identity`] that logged in with them, plus an injected async
-/// credential verifier. Cloning is cheap (`Arc` handle).
+/// the [`Identity`] that logged in with them (each with expiry bookkeeping),
+/// a per-key failed-login counter, and an injected async credential verifier.
+/// Cloning is cheap (`Arc` handle).
 #[derive(Clone)]
 pub struct AuthState {
     inner: Arc<Inner>,
 }
 
 impl AuthState {
-    /// Build a new [`AuthState`]. `verify_credentials` decides whether a
+    /// Build a new [`AuthState`] with the default [`TokenPolicy`] and
+    /// [`RateLimitPolicy`]. `verify_credentials` decides whether a
     /// `username`/`password` pair may log in and, if so, which [`Identity`]
     /// the resulting session belongs to.
     pub fn new(
@@ -69,10 +255,47 @@ impl AuthState {
             + Sync
             + 'static,
     ) -> Self {
+        Self::with_policy(
+            verify_credentials,
+            TokenPolicy::default(),
+            RateLimitPolicy::default(),
+        )
+    }
+
+    /// Like [`AuthState::new`], but with explicit token-expiry and
+    /// login-rate-limit policies (spec §11.2). Callers that need non-default
+    /// session lifetimes or lockout thresholds use this; everything else
+    /// stays on [`AuthState::new`]'s defaults.
+    pub fn with_policy(
+        verify_credentials: impl Fn(String, String) -> BoxFuture<'static, Option<Identity>>
+            + Send
+            + Sync
+            + 'static,
+        token_policy: TokenPolicy,
+        rate_limit: RateLimitPolicy,
+    ) -> Self {
+        Self::build(
+            Arc::new(verify_credentials),
+            token_policy,
+            rate_limit,
+            Clock::real(),
+        )
+    }
+
+    fn build(
+        verify_credentials: CredentialVerifier,
+        token_policy: TokenPolicy,
+        rate_limit: RateLimitPolicy,
+        clock: Clock,
+    ) -> Self {
         Self {
             inner: Arc::new(Inner {
                 tokens: RwLock::new(HashMap::new()),
-                verify_credentials: Arc::new(verify_credentials),
+                failures: RwLock::new(HashMap::new()),
+                verify_credentials,
+                token_policy,
+                rate_limit,
+                clock,
             }),
         }
     }
@@ -80,10 +303,44 @@ impl AuthState {
     /// Verify credentials and, on success, mint and store a new uuid-v4
     /// bearer token bound to the returned identity. Returns `None` on bad
     /// credentials.
+    ///
+    /// This is the un-throttled, trusted-caller path (used programmatically
+    /// and in tests): it does NOT consult the login rate limiter. The
+    /// network-exposed `POST /api/auth/login` handler goes through
+    /// [`AuthState::login_rate_limited`] instead, since that is the surface an
+    /// attacker can flood.
     pub async fn login(&self, username: &str, password: &str) -> Option<String> {
         let identity =
             (self.inner.verify_credentials)(username.to_string(), password.to_string()).await?;
         Some(self.issue_token(identity))
+    }
+
+    /// Rate-limited credential check for the login endpoint (spec §11.2).
+    /// `key` identifies the caller for lockout purposes (see
+    /// [`rate_limit_key`]). Order matters: the lockout is checked *before* the
+    /// expensive credential verifier runs, so a locked-out key cannot be used
+    /// to keep argon2 busy. A success clears the key's failure streak; a
+    /// failure adds to it (and may start a lockout).
+    pub async fn login_rate_limited(
+        &self,
+        key: &str,
+        username: &str,
+        password: &str,
+    ) -> LoginOutcome {
+        if let Some(retry_after) = self.locked_out(key) {
+            return LoginOutcome::RateLimited { retry_after };
+        }
+
+        match (self.inner.verify_credentials)(username.to_string(), password.to_string()).await {
+            Some(identity) => {
+                self.reset_failures(key);
+                LoginOutcome::Success(self.issue_token(identity))
+            }
+            None => {
+                self.record_failure(key);
+                LoginOutcome::InvalidCredentials
+            }
+        }
     }
 
     /// Mint and store a new bearer token for an already-verified `identity`,
@@ -92,23 +349,31 @@ impl AuthState {
     /// (e.g. the REST `/api/auth/setup` handler, right after
     /// `UsersService::setup_first_user` succeeds) and want to log the new
     /// session in immediately, the same way `login` would.
+    ///
+    /// Opportunistically sweeps already-expired tokens under the same write
+    /// lock, so the map stays bounded without a background reaper.
     pub fn issue_token(&self, identity: Identity) -> String {
         let token = Uuid::new_v4().to_string();
-        self.inner
-            .tokens
-            .write()
-            .expect("auth token lock poisoned")
-            .insert(token.clone(), identity);
+        let now = self.inner.clock.now();
+        let policy = self.inner.token_policy;
+        let mut tokens = self.inner.tokens.write().expect("auth token lock poisoned");
+        tokens.retain(|_, record| !record.is_expired(now, &policy));
+        tokens.insert(
+            token.clone(),
+            TokenRecord {
+                identity,
+                issued_at: now,
+                last_used: now,
+            },
+        );
         token
     }
 
-    /// Is `token` a currently-valid bearer token?
+    /// Is `token` a currently-valid, unexpired bearer token? A successful
+    /// check refreshes the token's idle timer (spec §11.2); an expired token
+    /// is removed as a side effect.
     pub fn verify(&self, token: &str) -> bool {
-        self.inner
-            .tokens
-            .read()
-            .expect("auth token lock poisoned")
-            .contains_key(token)
+        self.touch(token).is_some()
     }
 
     /// Invalidate `token` (idempotent: logging out twice is not an error).
@@ -121,18 +386,147 @@ impl AuthState {
     }
 
     /// The [`Identity`] bound to `token`, or `None` if it is not a
-    /// currently-valid token. Exposed (beyond what the `/api/auth/*` routes
-    /// below need) so other routers built in the app crate - e.g.
+    /// currently-valid, unexpired token. Refreshes the idle timer on success
+    /// (same as [`AuthState::verify`]). Exposed (beyond what the `/api/auth/*`
+    /// routes below need) so other routers built in the app crate - e.g.
     /// `admin-template-core::rest`'s `/api/auth/change-password` - can
     /// recover "which account is this request for" from the same bearer
     /// token `require_auth` already validated.
     pub fn identity_for(&self, token: &str) -> Option<Identity> {
+        self.touch(token)
+    }
+
+    /// Shared lookup for [`verify`](Self::verify)/[`identity_for`](Self::identity_for):
+    /// return the identity behind a live token and slide its idle window
+    /// forward, or evict it and return `None` if it has expired. Takes a
+    /// write lock (not a read lock) precisely because the idle-timer refresh
+    /// mutates the record - an acceptable cost for a single-host LAN server.
+    fn touch(&self, token: &str) -> Option<Identity> {
+        let now = self.inner.clock.now();
+        let policy = self.inner.token_policy;
+        let mut tokens = self.inner.tokens.write().expect("auth token lock poisoned");
+        match tokens.get_mut(token) {
+            Some(record) if !record.is_expired(now, &policy) => {
+                record.last_used = now;
+                Some(record.identity.clone())
+            }
+            Some(_) => {
+                tokens.remove(token);
+                None
+            }
+            None => None,
+        }
+    }
+
+    /// If `key` is currently locked out, how long until it may retry;
+    /// otherwise `None`.
+    fn locked_out(&self, key: &str) -> Option<Duration> {
+        let now = self.inner.clock.now();
+        let failures = self.inner.failures.read().expect("auth failure lock poisoned");
+        failures.get(key).and_then(|record| {
+            record
+                .locked_until
+                .filter(|until| *until > now)
+                .map(|until| until - now)
+        })
+    }
+
+    /// Record a failed attempt for `key`, starting a lockout once the streak
+    /// reaches [`RateLimitPolicy::max_failures`]. Sweeps aged-out records
+    /// under the same write lock.
+    fn record_failure(&self, key: &str) {
+        let now = self.inner.clock.now();
+        let policy = self.inner.rate_limit;
+        let mut failures = self.inner.failures.write().expect("auth failure lock poisoned");
+        failures.retain(|_, record| record.is_live(now, &policy));
+
+        let record = failures.entry(key.to_string()).or_insert(FailureRecord {
+            count: 0,
+            locked_until: None,
+            last_failure: now,
+        });
+
+        // An expired lockout, or a gap longer than the window since the last
+        // failure, ends the previous streak so counting restarts cleanly.
+        let lock_expired = record.locked_until.is_some_and(|until| until <= now);
+        let streak_stale = now.saturating_sub(record.last_failure) >= policy.lockout;
+        if lock_expired || streak_stale {
+            record.count = 0;
+            record.locked_until = None;
+        }
+
+        record.count += 1;
+        record.last_failure = now;
+        if record.count >= policy.max_failures {
+            record.locked_until = Some(now + policy.lockout);
+        }
+    }
+
+    /// Clear `key`'s failure streak after a successful login.
+    fn reset_failures(&self, key: &str) {
         self.inner
-            .tokens
-            .read()
-            .expect("auth token lock poisoned")
-            .get(token)
-            .cloned()
+            .failures
+            .write()
+            .expect("auth failure lock poisoned")
+            .remove(key);
+    }
+
+    #[cfg(test)]
+    fn with_frozen_clock(
+        verify_credentials: impl Fn(String, String) -> BoxFuture<'static, Option<Identity>>
+            + Send
+            + Sync
+            + 'static,
+        token_policy: TokenPolicy,
+        rate_limit: RateLimitPolicy,
+    ) -> Self {
+        Self::build(
+            Arc::new(verify_credentials),
+            token_policy,
+            rate_limit,
+            Clock::frozen(),
+        )
+    }
+
+    #[cfg(test)]
+    fn advance(&self, by: Duration) {
+        self.inner.clock.advance(by);
+    }
+}
+
+/// Lockout key for a login attempt (spec §11.2): client IP + username when
+/// the peer address is known, falling back to username-only when it is not
+/// (e.g. a caller that did not wire up `ConnectInfo`). Keying on the pair
+/// (rather than IP alone) avoids one noisy client on a shared NAT locking out
+/// every account behind it, while still binding the streak to a network
+/// origin when available.
+pub fn rate_limit_key(ip: Option<IpAddr>, username: &str) -> String {
+    match ip {
+        Some(ip) => format!("{ip}|{username}"),
+        None => format!("-|{username}"),
+    }
+}
+
+/// The connection's peer address, as an extractor that never rejects. Yields
+/// `Some` when the server was started with
+/// `into_make_service_with_connect_info::<SocketAddr>()` (production, see
+/// `server::start`), and `None` otherwise - notably `tower`'s `oneshot` in
+/// tests, which serves a router with no connect-info layer. axum 0.8's
+/// [`ConnectInfo`] is only a required extractor (there is no
+/// `Option<ConnectInfo<..>>`), so the login handler wraps it here rather than
+/// failing the whole request when the peer address is unavailable.
+struct MaybePeerAddr(Option<SocketAddr>);
+
+impl<S: Send + Sync> FromRequestParts<S> for MaybePeerAddr {
+    type Rejection = std::convert::Infallible;
+
+    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+        Ok(MaybePeerAddr(
+            parts
+                .extensions
+                .get::<ConnectInfo<SocketAddr>>()
+                .map(|info| info.0),
+        ))
     }
 }
 
@@ -175,21 +569,55 @@ struct LoginResponse {
     token: Option<String>,
 }
 
+/// `POST /api/auth/login` (spec §11.1/§11.2). Three outcomes:
+/// - success -> `200 {success:true, token}`.
+/// - wrong credentials -> `200 {success:false, error}` (unchanged legacy
+///   shape the frontend's `HttpAuthProvider.login` reads directly).
+/// - too many recent failures -> `429` with a banto-core [`ErrorBody::Other`]
+///   body carrying a Japanese message. `429`'s body is the `{kind,message}`
+///   error shape (not `LoginResponse`) on purpose: the frontend treats any
+///   non-2xx as an error and surfaces `ErrorBody::message`, so the lockout
+///   reason reaches the user as `{success:false, error}` without any frontend
+///   change (`packages/admin-core/src/providers/http.ts`).
+///
+/// The peer address (for the lockout key) comes from `ConnectInfo`, made
+/// optional so callers that serve without
+/// `into_make_service_with_connect_info` (e.g. `tower`'s `oneshot` in tests)
+/// still work - they simply fall back to a username-only lockout key.
 async fn login_handler(
     State(auth): State<AuthState>,
+    MaybePeerAddr(peer): MaybePeerAddr,
     Json(body): Json<LoginRequest>,
-) -> Json<LoginResponse> {
-    match auth.login(&body.username, &body.password).await {
-        Some(token) => Json(LoginResponse {
+) -> Response {
+    let key = rate_limit_key(peer.map(|addr| addr.ip()), &body.username);
+    match auth
+        .login_rate_limited(&key, &body.username, &body.password)
+        .await
+    {
+        LoginOutcome::Success(token) => Json(LoginResponse {
             success: true,
             error: None,
             token: Some(token),
-        }),
-        None => Json(LoginResponse {
+        })
+        .into_response(),
+        LoginOutcome::InvalidCredentials => Json(LoginResponse {
             success: false,
             error: Some("ユーザー名またはパスワードが違います".to_string()),
             token: None,
-        }),
+        })
+        .into_response(),
+        LoginOutcome::RateLimited { retry_after } => {
+            let seconds = retry_after.as_secs().max(1);
+            let message = format!(
+                "ログインの失敗が続いたため、一時的にロックされています。約{seconds}秒後にもう一度お試しください。"
+            );
+            (
+                StatusCode::TOO_MANY_REQUESTS,
+                [(header::RETRY_AFTER, seconds.to_string())],
+                Json(ErrorBody::Other { message }),
+            )
+                .into_response()
+        }
     }
 }
 
@@ -217,7 +645,8 @@ async fn identity_handler(State(auth): State<AuthState>, req: Request) -> Json<O
 /// - `POST /api/auth/login` — `{ username, password }` -> `{ success, error?, token? }`.
 ///   The token travels in the JSON body (not a cookie) since a LAN HTTP
 ///   server has no secure-cookie story; the frontend stores it and attaches
-///   it as `Authorization: Bearer <token>` on every other request.
+///   it as `Authorization: Bearer <token>` on every other request. Repeated
+///   failures are rate-limited to a `429` (spec §11.2, see [`login_handler`]).
 /// - `POST /api/auth/logout` — invalidates the bearer token on the request.
 /// - `GET /api/auth/check` — `bool`, whether the bearer token is valid.
 /// - `GET /api/auth/identity` — `Identity | null`.
@@ -241,6 +670,7 @@ mod tests {
     use super::*;
     use axum::body::Body;
     use axum::http::Request as HttpRequest;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use tower::ServiceExt;
 
     fn demo_auth() -> AuthState {
@@ -339,5 +769,256 @@ mod tests {
         });
         assert!(auth.verify(&token));
         assert_eq!(auth.identity_for(&token).unwrap().id, "owner");
+    }
+
+    // --- Token expiry (spec §11.2) ---------------------------------------
+
+    /// A small, fast policy so the expiry tests read clearly; the clock is
+    /// frozen and advanced by hand, so the durations are just relative.
+    fn short_token_policy() -> TokenPolicy {
+        TokenPolicy {
+            absolute_ttl: Duration::from_secs(100),
+            idle_ttl: Duration::from_secs(30),
+        }
+    }
+
+    fn frozen_auth(token_policy: TokenPolicy, rate_limit: RateLimitPolicy) -> AuthState {
+        AuthState::with_frozen_clock(
+            |u: String, p: String| {
+                Box::pin(async move {
+                    if u == "admin" && p == "admin" {
+                        Some(Identity {
+                            id: "admin".to_string(),
+                            name: "管理者".to_string(),
+                        })
+                    } else {
+                        None
+                    }
+                })
+            },
+            token_policy,
+            rate_limit,
+        )
+    }
+
+    #[tokio::test]
+    async fn token_expires_after_absolute_ttl_even_with_activity() {
+        let auth = frozen_auth(short_token_policy(), RateLimitPolicy::default());
+        let token = auth.login("admin", "admin").await.unwrap();
+
+        // Keep "using" it just under the idle timeout each step, so idle
+        // expiry never fires - only the absolute cap should eventually kill it.
+        // Three steps of 25s = 75s elapsed, all within absolute_ttl (100s).
+        for _ in 0..3 {
+            auth.advance(Duration::from_secs(25));
+            assert!(auth.verify(&token), "should survive within absolute_ttl");
+        }
+        // One more step: 100s since issue == absolute_ttl. The token is still
+        // well within its idle window (last used 25s ago), yet the absolute
+        // cap must kill it anyway - activity cannot extend it past this.
+        auth.advance(Duration::from_secs(25));
+        assert!(!auth.verify(&token), "should be dead past absolute_ttl");
+    }
+
+    #[tokio::test]
+    async fn token_expires_after_idle_timeout() {
+        let auth = frozen_auth(short_token_policy(), RateLimitPolicy::default());
+        let token = auth.login("admin", "admin").await.unwrap();
+
+        auth.advance(Duration::from_secs(31)); // > idle_ttl, no use in between
+        assert!(!auth.verify(&token), "should lapse after idle_ttl");
+    }
+
+    #[tokio::test]
+    async fn verify_refreshes_the_idle_window() {
+        let auth = frozen_auth(short_token_policy(), RateLimitPolicy::default());
+        let token = auth.login("admin", "admin").await.unwrap();
+
+        // Use it every 20s (< 30s idle_ttl): the sliding window keeps
+        // resetting, so it stays alive well past a single idle period.
+        for _ in 0..3 {
+            auth.advance(Duration::from_secs(20));
+            assert!(auth.verify(&token));
+        }
+        // Now go quiet past the idle timeout -> lapses.
+        auth.advance(Duration::from_secs(31));
+        assert!(!auth.verify(&token));
+    }
+
+    #[tokio::test]
+    async fn issue_token_sweeps_expired_tokens() {
+        let auth = frozen_auth(short_token_policy(), RateLimitPolicy::default());
+        let stale = auth.login("admin", "admin").await.unwrap();
+
+        auth.advance(Duration::from_secs(200)); // well past absolute_ttl
+        // A write (issuing a fresh token) should opportunistically drop the
+        // stale one rather than leave it lingering in the map.
+        let fresh = auth.issue_token(Identity {
+            id: "admin".to_string(),
+            name: "管理者".to_string(),
+        });
+        assert!(auth.verify(&fresh));
+        assert_eq!(
+            auth.inner.tokens.read().unwrap().len(),
+            1,
+            "the expired token should have been swept on write"
+        );
+        assert!(!auth.inner.tokens.read().unwrap().contains_key(&stale));
+    }
+
+    // --- Login rate limiting (spec §11.2) --------------------------------
+
+    /// Auth state whose verifier counts how many times it actually ran, so a
+    /// test can prove a locked-out attempt short-circuits *before* the
+    /// (expensive) credential check.
+    fn counting_auth(rate_limit: RateLimitPolicy) -> (AuthState, Arc<AtomicUsize>) {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let counter = calls.clone();
+        let auth = AuthState::with_frozen_clock(
+            move |u: String, p: String| {
+                let counter = counter.clone();
+                Box::pin(async move {
+                    counter.fetch_add(1, Ordering::SeqCst);
+                    if u == "admin" && p == "admin" {
+                        Some(Identity {
+                            id: "admin".to_string(),
+                            name: "管理者".to_string(),
+                        })
+                    } else {
+                        None
+                    }
+                })
+            },
+            TokenPolicy::default(),
+            rate_limit,
+        );
+        (auth, calls)
+    }
+
+    #[tokio::test]
+    async fn login_locks_out_after_max_consecutive_failures() {
+        let policy = RateLimitPolicy {
+            max_failures: 3,
+            lockout: Duration::from_secs(60),
+        };
+        let (auth, calls) = counting_auth(policy);
+        let key = rate_limit_key(None, "admin");
+
+        for _ in 0..3 {
+            assert!(matches!(
+                auth.login_rate_limited(&key, "admin", "wrong").await,
+                LoginOutcome::InvalidCredentials
+            ));
+        }
+        assert_eq!(calls.load(Ordering::SeqCst), 3, "3 real checks so far");
+
+        // The 4th attempt is locked out and must NOT run the verifier.
+        match auth.login_rate_limited(&key, "admin", "wrong").await {
+            LoginOutcome::RateLimited { retry_after } => {
+                assert!(retry_after <= Duration::from_secs(60));
+            }
+            other => panic!("expected RateLimited, got {other:?}"),
+        }
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            3,
+            "locked-out attempt must short-circuit the verifier"
+        );
+
+        // Even the CORRECT password is refused while locked out.
+        assert!(matches!(
+            auth.login_rate_limited(&key, "admin", "admin").await,
+            LoginOutcome::RateLimited { .. }
+        ));
+        assert_eq!(calls.load(Ordering::SeqCst), 3);
+    }
+
+    #[tokio::test]
+    async fn lockout_expires_after_the_cooloff() {
+        let policy = RateLimitPolicy {
+            max_failures: 3,
+            lockout: Duration::from_secs(60),
+        };
+        let (auth, _calls) = counting_auth(policy);
+        let key = rate_limit_key(None, "admin");
+
+        for _ in 0..3 {
+            auth.login_rate_limited(&key, "admin", "wrong").await;
+        }
+        assert!(matches!(
+            auth.login_rate_limited(&key, "admin", "admin").await,
+            LoginOutcome::RateLimited { .. }
+        ));
+
+        auth.advance(Duration::from_secs(61)); // ride out the cool-off
+        match auth.login_rate_limited(&key, "admin", "admin").await {
+            LoginOutcome::Success(token) => assert!(auth.verify(&token)),
+            other => panic!("expected Success after cool-off, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn success_resets_the_failure_streak() {
+        let policy = RateLimitPolicy {
+            max_failures: 3,
+            lockout: Duration::from_secs(60),
+        };
+        let (auth, _calls) = counting_auth(policy);
+        let key = rate_limit_key(None, "admin");
+
+        // Two failures (one short of the threshold)...
+        auth.login_rate_limited(&key, "admin", "wrong").await;
+        auth.login_rate_limited(&key, "admin", "wrong").await;
+        // ...then a success clears the streak.
+        assert!(matches!(
+            auth.login_rate_limited(&key, "admin", "admin").await,
+            LoginOutcome::Success(_)
+        ));
+        // Two more failures should NOT lock out (streak restarted at 0).
+        auth.login_rate_limited(&key, "admin", "wrong").await;
+        assert!(matches!(
+            auth.login_rate_limited(&key, "admin", "wrong").await,
+            LoginOutcome::InvalidCredentials
+        ));
+    }
+
+    #[tokio::test]
+    async fn login_handler_returns_429_after_lockout() {
+        let policy = RateLimitPolicy {
+            max_failures: 2,
+            lockout: Duration::from_secs(60),
+        };
+        let auth = frozen_auth(TokenPolicy::default(), policy);
+        let router = auth_routes(auth);
+
+        let bad = || {
+            HttpRequest::post("/api/auth/login")
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"username":"admin","password":"nope"}"#))
+                .unwrap()
+        };
+
+        // Two failures reach the threshold (max_failures: 2).
+        for _ in 0..2 {
+            let r = router.clone().oneshot(bad()).await.unwrap();
+            assert_eq!(r.status(), StatusCode::OK);
+        }
+        // The next attempt is locked out -> 429 with an ErrorBody the
+        // frontend already knows how to surface.
+        let locked = router.clone().oneshot(bad()).await.unwrap();
+        assert_eq!(locked.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert!(locked.headers().contains_key(header::RETRY_AFTER));
+        let json = body_json(locked).await;
+        assert_eq!(json["kind"], "other");
+        assert!(json["message"].as_str().unwrap().contains("ロック"));
+    }
+
+    #[test]
+    fn rate_limit_key_distinguishes_ip_and_username() {
+        let with_ip = rate_limit_key(Some("192.168.0.5".parse().unwrap()), "admin");
+        let without = rate_limit_key(None, "admin");
+        assert_eq!(with_ip, "192.168.0.5|admin");
+        assert_eq!(without, "-|admin");
+        assert_ne!(with_ip, without);
     }
 }

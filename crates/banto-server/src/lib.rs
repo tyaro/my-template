@@ -21,7 +21,10 @@ pub mod response;
 pub mod server;
 pub mod static_files;
 
-pub use auth::{auth_routes, require_auth, AuthState, Identity};
+pub use auth::{
+    auth_routes, rate_limit_key, require_auth, AuthState, Identity, LoginOutcome, RateLimitPolicy,
+    TokenPolicy,
+};
 pub use csrf::require_banto_client_header;
 pub use events::{sse_route, ServerEvent};
 pub use response::ApiError;

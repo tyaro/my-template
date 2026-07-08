@@ -8,11 +8,12 @@
     "onlyBuiltDependencies": ["esbuild", "@tauri-apps/cli"]
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=24"
   },
   "scripts": {
     "dev": "pnpm --filter admin-template dev",
     "build": "pnpm --filter admin-template build",
-    "check": "pnpm --recursive --if-present check"
+    "check": "pnpm --recursive --if-present check",
+    "test": "pnpm --recursive --if-present test"
   }
 }
