@@ -42,3 +42,19 @@ export {
 	GAUGE_END_DEG,
 	type GaugeThresholds
 } from './core/gauge';
+
+// M13 headless core additions (roadmap.md M13): zoom/pan viewport state for
+// trend charts, histogram binning + normal-curve overlay, Pareto data,
+// box-plot statistics, and rolling-window helpers for streaming updates.
+export {
+	fullViewport,
+	zoomViewport,
+	panViewport,
+	isFullViewport,
+	visibleRange,
+	type Viewport
+} from './core/viewport';
+export { histogramBins, normalCurvePoints, type Bin } from './core/bins';
+export { paretoData, type ParetoItem, type ParetoDatum } from './core/pareto';
+export { boxStats, quantileSorted, type BoxStats } from './core/boxplot';
+export { rollingAppend, evictBefore } from './core/rolling';
