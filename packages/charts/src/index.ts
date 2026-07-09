@@ -16,7 +16,15 @@ export { default as RadarChart } from './RadarChart.svelte';
 export { default as Heatmap } from './Heatmap.svelte';
 export { default as Gauge } from './Gauge.svelte';
 
-export type { Accessor, ChartMargin, SeriesBase, TooltipRow } from './types';
+export type {
+	Accessor,
+	ChartMargin,
+	SeriesBase,
+	TooltipRow,
+	ChartAxis,
+	ThresholdBand,
+	EventMarker
+} from './types';
 export { getValue, toNumber } from './types';
 
 export { linearScale, niceTicks, bandScale, type LinearScale, type BandScale } from './core/scale';
@@ -54,6 +62,7 @@ export {
 	visibleRange,
 	type Viewport
 } from './core/viewport';
+export { decimationStride, decimatedIndices } from './core/decimate';
 export { histogramBins, normalCurvePoints, type Bin } from './core/bins';
 export { paretoData, type ParetoItem, type ParetoDatum } from './core/pareto';
 export { boxStats, quantileSorted, type BoxStats } from './core/boxplot';
