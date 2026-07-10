@@ -58,6 +58,16 @@
 		onRowClick?: (row: TRow) => void;
 		onCellEdit?: (edit: CellEdit<TRow>) => void | Promise<void>;
 		onRangePaste?: (edits: CellEdit<TRow>[], info: { skipped: number }) => void | Promise<void>;
+		/**
+		 * Optional extra class name(s) for a data row's outer `.row` element,
+		 * computed per-row (spec M14: the audit-log viewer uses this to give
+		 * `result: 'denied' | 'failed'` rows a subdued left border via a
+		 * `:global()` selector in the caller's own stylesheet - see that
+		 * page's doc comment). Returning `''`/`undefined` adds nothing. Not
+		 * applied to placeholder (unloaded server-mode) rows or group header
+		 * rows, since neither has a real `TRow` to compute a class from.
+		 */
+		rowClass?: (row: TRow) => string | undefined;
 		/** Server mode: fires after a sort toggle / filter apply / filter clear so the caller can re-fetch. */
 		onParamsChange?: (params: { sort: SortState[]; filters: FilterState[] }) => void;
 		/** Server mode: fires when the virtualized window's [start, end) actually changes (not on every scroll tick). */
@@ -79,7 +89,8 @@
 		onCellEdit,
 		onRangePaste,
 		onParamsChange,
-		onVisibleRangeChange
+		onVisibleRangeChange,
+		rowClass
 	}: Props = $props();
 
 	// Created once per component instance. If the caller passes `state`, that
@@ -903,7 +914,7 @@
 
 		{#snippet dataRow(row: TRow, rowIndex: number)}
 			<div
-				class="row"
+				class="row {rowClass?.(row) ?? ''}"
 				role="row"
 				aria-rowindex={rowIndex + 2}
 				style:grid-template-columns={templateColumns}

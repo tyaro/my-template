@@ -13,6 +13,12 @@
 		type AuthDisabledRole,
 		type AuthSettings
 	} from '$lib/banto/authAdmin';
+	import {
+		getAuditConfig,
+		isAuditLogAvailable,
+		setAuditConfig,
+		type AuditSettings
+	} from '$lib/banto/auditLogAdmin';
 	import { toastStore } from '$lib/toast.svelte';
 	import { sessionStore } from '$lib/session.svelte';
 	import { isAdmin } from '$lib/permissions';
@@ -257,6 +263,60 @@
 			disablingAutologin = false;
 		}
 	}
+
+	// --- M14: audit-log retention policy (Tauri + LAN browser) --------------
+	// Unlike server/auth-mode settings above, this section is not
+	// Tauri-only: `auditLogAdmin.ts` has a REST fallback
+	// (`GET`/`PUT /api/audit-log/config`, spec M14 Phase B) so a LAN browser
+	// admin can also see/change the retention policy, not just the desktop
+	// app - so this section is gated on `auditAvailable` (real backend, not
+	// the plain-browser demo) rather than `tauri`.
+	const auditAvailable = isAuditLogAvailable();
+
+	let auditConfig = $state<AuditSettings | null>(null);
+	// 0 is the wire sentinel for "unlimited" on both fields (spec M14,
+	// `SettingsService::set_audit_config`/`normalize_retention`) - shown to
+	// the admin as a plain 0 with an explanatory note below, rather than a
+	// separate checkbox, mirroring the Rust-side convention exactly.
+	let retentionDaysDraft = $state(90);
+	let retentionRowsDraft = $state(100_000);
+	let applyingAudit = $state(false);
+	let auditError: string | null = $state(null);
+
+	function applyAuditConfigToDrafts(config: AuditSettings): void {
+		auditConfig = config;
+		retentionDaysDraft = config.retentionDays ?? 0;
+		retentionRowsDraft = config.retentionRows ?? 0;
+	}
+
+	$effect(() => {
+		if (!auditAvailable || !isAdmin(sessionStore.role)) return;
+		void (async () => {
+			try {
+				applyAuditConfigToDrafts(await getAuditConfig());
+			} catch (err) {
+				auditError = errorMessage(err);
+			}
+		})();
+	});
+
+	async function saveAuditConfig(): Promise<void> {
+		applyingAudit = true;
+		auditError = null;
+		try {
+			applyAuditConfigToDrafts(
+				await setAuditConfig({
+					retentionDays: retentionDaysDraft > 0 ? retentionDaysDraft : null,
+					retentionRows: retentionRowsDraft > 0 ? retentionRowsDraft : null
+				})
+			);
+			toastStore.push('success', '監査ログの保持ポリシーを更新しました');
+		} catch (err) {
+			toastStore.push('error', errorMessage(err));
+		} finally {
+			applyingAudit = false;
+		}
+	}
 </script>
 
 <div class="sections">
@@ -451,6 +511,43 @@
 					資格情報はOSのキーリングに保存されます。起動時にこのアカウントで自動的にログインします。
 				</p>
 			{/if}
+		</section>
+	{/if}
+
+	{#if auditAvailable && isAdmin(sessionStore.role)}
+		<section>
+			<h2>監査ログの保持ポリシー</h2>
+
+			<div class="server-fields">
+				<label class="field">
+					保持日数
+					<input type="number" min="0" bind:value={retentionDaysDraft} />
+				</label>
+				<label class="field">
+					上限行数
+					<input type="number" min="0" bind:value={retentionRowsDraft} />
+				</label>
+			</div>
+
+			<button type="button" onclick={saveAuditConfig} disabled={applyingAudit}>保存</button>
+
+			{#if auditError}
+				<p class="error">{auditError}</p>
+			{/if}
+
+			{#if auditConfig}
+				<p class="status">
+					現在の設定:
+					<strong>
+						{auditConfig.retentionDays !== null ? `${auditConfig.retentionDays}日` : '無期限'}
+						/ {auditConfig.retentionRows !== null ? `${auditConfig.retentionRows.toLocaleString()}件` : '無制限'}
+					</strong>
+				</p>
+			{/if}
+
+			<p class="note">
+				0を入力すると、その項目は無制限になります（既定は90日 / 10万件）。古い記録は一覧の表示時に自動的に整理されます。記録の一覧は「監査ログ」画面から確認できます。
+			</p>
 		</section>
 	{/if}
 

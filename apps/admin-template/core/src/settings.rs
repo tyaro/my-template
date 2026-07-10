@@ -6,7 +6,7 @@
 use std::str::FromStr;
 
 use banto_core::{BantoError, FieldError};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 
 use crate::users::Role;
@@ -154,7 +154,14 @@ impl Default for AuthSettings {
 /// Defaults to 90 days / 100,000 rows - generous enough not to surprise a
 /// fresh install, bounded enough that the table does not grow forever with
 /// no configuration at all.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+///
+/// `Deserialize` (in addition to `Serialize`) is needed from M14 Phase B: the
+/// REST layer's `PUT /api/audit-log/config` (`crate::rest::audit_config_apply`)
+/// decodes the request body straight into this type rather than a bespoke
+/// request struct - it is a plain two-field settings value with no fields
+/// that must never round-trip over the wire (unlike `AuthSettings`, which
+/// deliberately has no password field to begin with).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AuditSettings {
     pub retention_days: Option<i64>,

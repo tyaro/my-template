@@ -29,6 +29,8 @@
 //! | GET    | `/api/ui-settings/{key}` | -          | `{value: string \| null}` (any role) |
 //! | PUT    | `/api/ui-settings/{key}` | `{value}`  | 204 (any role)          |
 //! | POST   | `/api/audit-log/list` | `ListParams`   | `ListResult<AuditLogEntry>` (admin) |
+//! | GET    | `/api/audit-log/config` | -            | `AuditSettings` (admin) |
+//! | PUT    | `/api/audit-log/config` | `AuditSettings` | `AuditSettings` (admin) |
 //!
 //! `/api/ui-settings/*` (spec M12 SettingsProvider migration): per-user UI
 //! settings (theme/preset/dock layout), namespaced by the caller's own
@@ -101,7 +103,7 @@ use tokio::sync::broadcast;
 
 use crate::audit::{AuditEntry, AuditLogService};
 use crate::items::{Item, ItemInput, ItemsService};
-use crate::settings::SettingsService;
+use crate::settings::{AuditSettings, SettingsService};
 use crate::users::{Role, UserIdentity, UserSummary, UsersService};
 
 /// Resolve the caller's [`Identity`] from its bearer token, best-effort
@@ -936,13 +938,17 @@ async fn audit_logout_middleware(
     response
 }
 
-/// State for `POST /api/audit-log/list` (spec M14): `AuditLogService` for
-/// the read itself, plus `SettingsService` to look up the current retention
-/// policy for the light opportunistic prune below.
+/// State for the `/api/audit-log/*` handlers (spec M14): `AuditLogService`
+/// for the read/write itself, `SettingsService` for the retention-policy
+/// config endpoints (and the list route's opportunistic prune), plus
+/// `AuthState` so `audit_config_apply` can resolve the calling actor (via
+/// [`actor_identity`]) for its own `settings_change` audit entry, same as
+/// the items/users write handlers' `record_write` helper.
 #[derive(Clone)]
 struct AuditLogState {
     audit: AuditLogService,
     settings: SettingsService,
+    auth: AuthState,
 }
 
 /// `POST /api/audit-log/list` (spec M14, `admin`-only): filtered/sorted/
@@ -969,6 +975,48 @@ async fn audit_log_list(
     Ok(Json(state.audit.list(params).await?))
 }
 
+/// `GET /api/audit-log/config` (spec M14, `admin`-only): current retention
+/// policy - read-only, so unlike `audit_config_apply` this records nothing
+/// (spec: read routes are never audited).
+async fn audit_config_get(
+    State(state): State<AuditLogState>,
+) -> Result<Json<AuditSettings>, ApiError> {
+    Ok(Json(state.settings.audit_config().await?))
+}
+
+/// `PUT /api/audit-log/config` (spec M14, `admin`-only): persist a new
+/// retention policy (days and/or row-count cap; either may be `null` for
+/// "unlimited" on that dimension, see [`crate::settings::AuditSettings`]),
+/// mirroring `src-tauri`'s `audit_config_apply` command - same
+/// `settings_change`/`settings` audit entry shape, just `origin: "rest"` and
+/// the actor resolved from the bearer token (`actor_identity`) instead of
+/// from Tauri's session mutex.
+async fn audit_config_apply(
+    State(state): State<AuditLogState>,
+    headers: HeaderMap,
+    Json(config): Json<AuditSettings>,
+) -> Result<Json<AuditSettings>, ApiError> {
+    state.settings.set_audit_config(&config).await?;
+    let identity = actor_identity(&headers, &state.auth);
+    state
+        .audit
+        .record(AuditEntry {
+            actor_username: identity.as_ref().map(|i| i.id.as_str()),
+            actor_role: identity.as_ref().map(|i| i.role.as_str()),
+            action: "settings_change",
+            resource: "settings",
+            entity_id: None,
+            detail: Some(serde_json::json!({
+                "retentionDays": config.retention_days,
+                "retentionRows": config.retention_rows,
+            })),
+            origin: "rest",
+            result: "ok",
+        })
+        .await;
+    Ok(Json(state.settings.audit_config().await?))
+}
+
 /// `/api/audit-log/*` (spec M14): `admin`-only, guarded the same way
 /// `users_router` is (`require_auth` then `require_role_at_least`).
 fn audit_log_router(
@@ -979,9 +1027,14 @@ fn audit_log_router(
     let state = AuditLogState {
         audit: audit.clone(),
         settings,
+        auth: auth.clone(),
     };
     Router::new()
         .route("/api/audit-log/list", post(audit_log_list))
+        .route(
+            "/api/audit-log/config",
+            get(audit_config_get).put(audit_config_apply),
+        )
         .with_state(state)
         .layer(middleware::from_fn_with_state(
             RoleGuard {
@@ -2113,6 +2166,84 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    /// `GET /api/audit-log/config` is admin-only: 200 (with the default
+    /// retention policy) for admin, 403 for editor/viewer.
+    #[tokio::test]
+    async fn audit_config_get_is_admin_only() {
+        let (router, _audit, admin, editor, viewer) = router_with_role_tokens_and_audit().await;
+
+        let admin_response = router.clone().oneshot(get_auth("/api/audit-log/config", &admin)).await.unwrap();
+        assert_eq!(admin_response.status(), StatusCode::OK);
+        let body = body_json(admin_response).await;
+        assert_eq!(body["retentionDays"], 90);
+        assert_eq!(body["retentionRows"], 100_000);
+
+        for token in [&editor, &viewer] {
+            let response = router.clone().oneshot(get_auth("/api/audit-log/config", token)).await.unwrap();
+            assert_eq!(response.status(), StatusCode::FORBIDDEN, "token role mismatch");
+        }
+    }
+
+    /// `PUT /api/audit-log/config` (admin) persists the new policy - a
+    /// following `GET` reflects it - and records a `settings_change` audit
+    /// entry (spec M14: settings mutations are audited, unlike the read-only
+    /// `GET`). `editor`/`viewer` are rejected with 403 and the policy is left
+    /// untouched.
+    #[tokio::test]
+    async fn audit_config_apply_persists_and_is_admin_only() {
+        let (router, _audit, admin, editor, viewer) = router_with_role_tokens_and_audit().await;
+
+        for token in [&editor, &viewer] {
+            let response = router
+                .clone()
+                .oneshot(put_json(
+                    "/api/audit-log/config",
+                    token,
+                    json!({ "retentionDays": 30, "retentionRows": 5000 }),
+                ))
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::FORBIDDEN, "token role mismatch");
+        }
+
+        let apply_response = router
+            .clone()
+            .oneshot(put_json(
+                "/api/audit-log/config",
+                &admin,
+                json!({ "retentionDays": 30, "retentionRows": 5000 }),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(apply_response.status(), StatusCode::OK);
+        let applied = body_json(apply_response).await;
+        assert_eq!(applied["retentionDays"], 30);
+        assert_eq!(applied["retentionRows"], 5000);
+
+        let get_response = router.clone().oneshot(get_auth("/api/audit-log/config", &admin)).await.unwrap();
+        let refetched = body_json(get_response).await;
+        assert_eq!(refetched["retentionDays"], 30);
+        assert_eq!(refetched["retentionRows"], 5000);
+
+        let list_response = router
+            .oneshot(post_json_auth(
+                "/api/audit-log/list",
+                &admin,
+                json!(ListParams::default()),
+            ))
+            .await
+            .unwrap();
+        let rows = body_json(list_response).await["rows"].clone();
+        let rows = rows.as_array().unwrap();
+        let entry = rows
+            .iter()
+            .find(|r| r["action"] == "settings_change" && r["resource"] == "settings")
+            .unwrap_or_else(|| panic!("expected a settings_change/settings entry, got {rows:?}"));
+        assert_eq!(entry["actorUsername"], "admin");
+        assert_eq!(entry["origin"], "rest");
+        assert_eq!(entry["result"], "ok");
     }
 
     /// (b) A successful item creation is recorded.

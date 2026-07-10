@@ -26,7 +26,7 @@ use admin_template_core::db::init_db;
 use admin_template_core::events::event_channel;
 use admin_template_core::items::{Item, ItemInput, ItemsService};
 use admin_template_core::rest::{api_router, audited_credential_verifier};
-use admin_template_core::settings::{AuthSettings, ServerSettings, SettingsService};
+use admin_template_core::settings::{AuditSettings, AuthSettings, ServerSettings, SettingsService};
 use admin_template_core::users::{Role, UserIdentity, UserSummary, UsersService};
 use banto_core::{BantoError, FieldError, ListParams, ListResult};
 use banto_server::{
@@ -1117,6 +1117,59 @@ async fn audit_log_list(
     state.audit.list(params).await
 }
 
+/// Current audit-log retention policy (spec M14 Phase B). Any authenticated
+/// role may read this (same rationale as `auth_config_get`: it only feeds a
+/// settings-screen display) - only `audit_config_apply` below is
+/// `admin`-only.
+#[tauri::command]
+async fn audit_config_get(state: State<'_, AppState>) -> Result<AuditSettings, BantoError> {
+    require_role(&state, Role::Viewer, "settings").await?;
+    state.settings.audit_config().await
+}
+
+/// `admin`-only (spec M14 Phase B): persist a new retention policy. `None`
+/// on either field means unlimited on that dimension
+/// (`SettingsService::set_audit_config`/`normalize_retention`) - the
+/// pruning itself still only runs opportunistically from `audit_log_list`/
+/// `crate::rest::audit_log_list`, not from this command.
+#[tauri::command]
+async fn audit_config_apply(
+    state: State<'_, AppState>,
+    retention_days: Option<i64>,
+    retention_rows: Option<i64>,
+) -> Result<AuditSettings, BantoError> {
+    let actor = require_role(&state, Role::Admin, "settings").await?;
+    let config = AuditSettings {
+        retention_days,
+        retention_rows,
+    };
+    state.settings.set_audit_config(&config).await?;
+    state
+        .audit
+        .record(AuditEntry {
+            actor_username: Some(&actor.username),
+            actor_role: Some(actor.role.as_str()),
+            action: "settings_change",
+            resource: "settings",
+            entity_id: None,
+            detail: Some(serde_json::json!({
+                "retentionDays": config.retention_days,
+                "retentionRows": config.retention_rows,
+            })),
+            origin: "tauri",
+            result: "ok",
+        })
+        .await;
+    // Re-read rather than echo `config` back directly: `set_audit_config`/
+    // `audit_config` round-trip a non-positive value as `None` (spec:
+    // "0以下は「無制限」" - see `normalize_retention`), so if the caller
+    // passed e.g. `Some(0)` the echoed struct would show `Some(0)` while a
+    // subsequent `audit_config_get` would show `None` for the same field.
+    // Re-reading keeps this command's response identical to what every
+    // other reader of the setting sees.
+    state.settings.audit_config().await
+}
+
 /// Pop a dock panel out into a REAL native window (spec §5.3 v2 - the
 /// "ウィンドウ分離" mode the v1 doc comment left as a future extension
 /// point). Thin by design: this is the ONLY Tauri-aware half of the pop-out
@@ -1466,6 +1519,8 @@ pub fn run() {
             users_reset_password,
             users_delete,
             audit_log_list,
+            audit_config_get,
+            audit_config_apply,
             panel_open,
         ])
         .run(tauri::generate_context!())
