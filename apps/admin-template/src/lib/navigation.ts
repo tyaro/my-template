@@ -17,6 +17,7 @@ export const navItems: NavItem[] = [
 	{ path: '/dashboard', label: 'ダッシュボード', icon: '📊' },
 	{ path: '/items', label: '商品', icon: '📦' },
 	{ path: '/users', label: 'ユーザー管理', icon: '👤', adminOnly: true },
+	{ path: '/audit-log', label: '監査ログ', icon: '🧾', adminOnly: true },
 	{ path: '/settings', label: '設定', icon: '⚙️' }
 ];
 
