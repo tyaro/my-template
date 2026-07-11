@@ -507,16 +507,14 @@ impl AuthState {
         let remembered_policy = self.inner.remembered_policy;
         let mut tokens = self.inner.tokens.write().expect("auth token lock poisoned");
 
-        let expired = match tokens.get(token) {
-            Some(record) => {
-                let policy = if record.remembered {
-                    &remembered_policy
-                } else {
-                    &token_policy
-                };
-                record.is_expired(now, policy)
-            }
-            None => return None,
+        let expired = {
+            let record = tokens.get(token)?;
+            let policy = if record.remembered {
+                &remembered_policy
+            } else {
+                &token_policy
+            };
+            record.is_expired(now, policy)
         };
 
         if expired {
