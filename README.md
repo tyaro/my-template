@@ -33,8 +33,10 @@ Tauri v2 + SvelteKit（Svelte 5 Runes）向けのフルスタック管理画面
 
 ## 構成
 
-npm パッケージ（`packages/`、すべて `@banto/*`、MIT、現状はモノレポ内で
-ソース直接参照 — 公開する場合は [docs/publishing.md](docs/publishing.md)）:
+npm パッケージ（`packages/`、すべて `@banto/*`、現状はモノレポ内で
+ソース直接参照。GitHub Packages（私設npm）へ配布可能な状態
+（`license: "UNLICENSED"`・私設配布・権利留保）にしてあるが、実際に
+publish するには前提の解消が要る — 詳細は [docs/publishing.md](docs/publishing.md)）:
 
 | パッケージ           | 内容                                                          |
 | -------------------- | ------------------------------------------------------------- |
@@ -56,6 +58,104 @@ Rust クレート（`crates/`、MIT）:
 アプリ（`apps/admin-template/`）: Tauri v2 + SvelteKit の管理画面テンプレート
 本体。`core/`（tauri非依存のサービス層 `admin-template-core`）と
 `src-tauri/`（薄いコマンドアダプタ）に分かれる。
+
+## テンプレートから自分のアプリを作る
+
+Banto は**コピーして使う**前提のテンプレート（[docs/template-scope.md](docs/template-scope.md)
+§1）。以下の手順でリネームし、デモコンテンツ（`items` リソース一式）を
+自分のリソースに差し替える。
+
+### 1. コピーとリネーム
+
+1. リポジトリをコピー（GitHubの「Use this template」、または
+   `git clone` 後に `rm -rf .git && git init` で履歴を切り離す）。
+2. 名称・識別子を変更する箇所:
+   - ルート `package.json` の `name`/`description`
+   - `apps/admin-template/package.json` の `name`
+   - `apps/admin-template/src-tauri/tauri.conf.json` の
+     `productName`/`identifier`（`dev.banto.admin` を自分の逆順ドメイン
+     識別子に）・`app.windows[0].title`
+   - アプリ内の表示文言（`src/app.html` の `<title>`、
+     `src/lib/components/Header.svelte`・`src/routes/login/+page.svelte`
+     等の「Banto」表記）
+   - アイコン: `pnpm --filter admin-template tauri icon <画像>`
+     （下記「Windowsでのローカルセットアップ」節を参照）
+   - ルート `README.md`/`LICENSE`（著作権者名）、Rust ワークスペース
+     `Cargo.toml` の `workspace.package.repository` と各
+     `packages/*/package.json` の `repository.url`（フォーク後の
+     自リポジトリURLに変更。`@banto/*` パッケージを独自に配布する場合は
+     [docs/publishing.md](docs/publishing.md) の scope 問題も参照）
+3. `packages/*` は現状 `@banto/*` のままモノレポ内 `workspace:*` 参照で
+   使う分にはリネーム不要（配布する場合のみ上記を検討）。
+
+### 2. デモコンテンツ（`items`）を自リソースに差し替える
+
+`items`（商品）は「一覧・詳細・新規作成・CSVインポート/エクスポート・
+ダッシュボード集計」を貫通させたお手本として同梱している
+（[docs/template-scope.md](docs/template-scope.md) §3）。関与ファイルは
+以下の通り — 同じ形をなぞって自分のリソースを追加し、不要なら `items`
+一式を削除する:
+
+| 層                       | ファイル                                                                                                                                | 内容                                                                                                   |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| Rust: マイグレーション   | `apps/admin-template/core/migrations/0001_items.sql`                                                                                    | `items` テーブル定義                                                                                   |
+| Rust: シード             | `apps/admin-template/core/src/db.rs`（`SEED_ROW_COUNT`・`seed_if_empty`）                                                               | 初回起動時の1,000件デモ投入                                                                            |
+| Rust: サービス層         | `apps/admin-template/core/src/items.rs`                                                                                                 | `Item`/`ItemInput`/`ItemImportRow`・CRUD・CSVインポート                                                |
+| Rust: REST               | `apps/admin-template/core/src/rest.rs`                                                                                                  | `items` のルーティング（LANブラウザ向け）                                                              |
+| Rust: Tauriコマンド      | `apps/admin-template/src-tauri/src/lib.rs`                                                                                              | `items_list`/`items_get`/`items_create`/`items_update`/`items_delete`/`items_import`、`AppState.items` |
+| フロント: リソース定義   | `apps/admin-template/src/lib/banto/setup.ts`                                                                                            | `itemsSchema`/`itemsResource`、`initBanto({ resources: [...] })` への登録                              |
+| フロント: デモデータ     | `apps/admin-template/src/lib/banto/sampleData.ts`                                                                                       | ブラウザ単体デモモード（InMemory）用の生成データ                                                       |
+| フロント: ページ         | `apps/admin-template/src/routes/(app)/items/`                                                                                           | 一覧（`ItemsClientGrid.svelte`/`ItemsServerGrid.svelte`）・詳細・新規                                  |
+| フロント: CSVインポート  | `apps/admin-template/src/lib/banto/itemsAdmin.ts`                                                                                       | バルクインポートAPIクライアント（M15）                                                                 |
+| フロント: ナビ           | `apps/admin-template/src/lib/navigation.ts`                                                                                             | `/items` エントリ                                                                                      |
+| フロント: ダッシュボード | `apps/admin-template/src/lib/banto/dashboard.ts`・`src/lib/components/DashboardPanel.svelte`・`src/routes/(app)/dashboard/+page.svelte` | `items` から集計するスタットタイル/カテゴリ別在庫等のパネル定義                                        |
+
+進め方の目安: まず Rust側（マイグレーション → サービス層 → REST →
+Tauriコマンド）を自リソースに書き換え、次にフロント側
+（リソース定義 → ページ → ナビ → ダッシュボード）を追随させる。
+`admin-template-core`/Tauri/REST の三経路で同一のサービス層を通す構造
+（[docs/template-scope.md](docs/template-scope.md) §2.1）は維持すること。
+
+### 3. オプション資産の削除
+
+以下は「同梱するが削除できる」ことが保証されたオプション資産
+（[docs/template-scope.md](docs/template-scope.md) §3）。不要なら
+以下の箇所を外す。
+
+**`@banto/dock-svelte`（ダッシュボードのドッキングレイアウト）**:
+`apps/admin-template/src/routes/(app)/dashboard/+page.svelte` の
+`DockHost`/`dock`/`onPopOut` 関連コード、`src/lib/banto/panels.ts`・
+`src/lib/banto/popout.ts` を削除し、ダッシュボードページを固定レイアウトの
+パネル羅列に置き換える。`apps/admin-template/package.json` の
+`@banto/dock-svelte` 依存を外す。
+
+**`@banto/charts`（SVGチャート）**:
+`apps/admin-template/src/routes/(app)/dashboard/+page.svelte` の
+チャートデモ（トレンド/SPC系パネル）と `src/lib/components/DashboardPanel.svelte`・
+`src/lib/banto/dashboard.ts` の集計処理を削除。`items`
+自体は他機能（CSVエクスポート等）で使うため残してよい。
+`package.json` の `@banto/charts` 依存を外す。
+
+**Glassテーマ + Windows vibrancy（M12）**:
+`packages/theme/src/css/banto-glass.css` を削除し
+`packages/theme/src/css/banto.css` の `@import './banto-glass.css'`
+を外す。`packages/theme/src/index.ts` の `ThemePreset` から `'glass'` を
+除去。設定画面（`apps/admin-template/src/routes/(app)/settings/+page.svelte`）
+のプリセット選択肢から「ガラス」を外す。デスクトップの本物のガラス感
+（Windows Acrylic）も併せて外す場合は `src/lib/banto/vibrancy.ts`、
+`src-tauri/src/lib.rs` の `vibrancy_apply`/`vibrancy_status`/
+`set_window_vibrancy` と `window-vibrancy` 依存
+（`src-tauri/Cargo.toml`）、設定画面のvibrancyトグルを削除する。
+プリセット未選択（`standard`のみ）ならCSSは不活性のため、見た目だけ
+気にしないなら削除自体は必須ではない。
+
+**コマンドパレット（Ctrl+K、M16）**:
+`apps/admin-template/src/lib/components/CommandPalette.svelte`・
+`src/lib/commandPalette.svelte.ts`・`src/lib/commands.ts` を削除し、
+`src/routes/(app)/+layout.svelte` と `src/lib/components/Header.svelte`
+からの参照（`commandPaletteStore`・Ctrl+Kのキーバインド・パレット起動
+ボタン）を外す。ナビ定義（`navigation.ts`）からの自動導出のみで構成
+されるため、削除してもナビ自体には影響しない。
 
 ## 開発
 
