@@ -61,7 +61,9 @@
 		}));
 	});
 
-	const orderedCommands = $derived(displayGroups.flatMap((g) => g.items.map((item) => item.command)));
+	const orderedCommands = $derived(
+		displayGroups.flatMap((g) => g.items.map((item) => item.command))
+	);
 	const selectedCommand = $derived(orderedCommands[selectedIndex]);
 
 	// A fresh query means a fresh result set - keep selection pinned to the
@@ -128,7 +130,13 @@
 <svelte:window onpointerdown={handleWindowPointerDown} />
 
 <div class="overlay">
-	<div class="palette" role="dialog" aria-modal="true" aria-label="コマンドパレット" bind:this={paletteEl}>
+	<div
+		class="palette"
+		role="dialog"
+		aria-modal="true"
+		aria-label="コマンドパレット"
+		bind:this={paletteEl}
+	>
 		<input
 			type="text"
 			class="search"
@@ -138,7 +146,9 @@
 			role="combobox"
 			aria-expanded="true"
 			aria-controls="command-palette-list"
-			aria-activedescendant={selectedCommand ? `command-palette-item-${selectedCommand.id}` : undefined}
+			aria-activedescendant={selectedCommand
+				? `command-palette-item-${selectedCommand.id}`
+				: undefined}
 			bind:value={query}
 			bind:this={inputEl}
 			onkeydown={handleKeydown}

@@ -18,7 +18,13 @@
 	 * （isAuditLogAvailable()、usersAdmin.ts と同じ流儀）。
 	 */
 	import { untrack } from 'svelte';
-	import { BantoGrid, GridState, type FilterState, type GridColumn, type SortState } from '@banto/grid-svelte';
+	import {
+		BantoGrid,
+		GridState,
+		type FilterState,
+		type GridColumn,
+		type SortState
+	} from '@banto/grid-svelte';
 	import { isProviderError } from '@banto/admin-core';
 	import { toastStore } from '$lib/toast.svelte';
 	import {
@@ -286,7 +292,8 @@
 			try {
 				const config = await getAuditConfig();
 				const days = config.retentionDays !== null ? `${config.retentionDays}日` : '無期限';
-				const rows = config.retentionRows !== null ? `${config.retentionRows.toLocaleString()}件` : '無制限';
+				const rows =
+					config.retentionRows !== null ? `${config.retentionRows.toLocaleString()}件` : '無制限';
 				retentionNote = `保持ポリシー: 最大${days} / 最大${rows}（「設定」画面で変更できます）`;
 			} catch {
 				// 表示専用の補足情報なので、取得に失敗しても画面は壊さない。
@@ -310,7 +317,9 @@
 			<p class="note">{retentionNote}</p>
 		{/if}
 
-		<p class="note">{windowed.totalCount.toLocaleString()}件の記録があります。行をクリックすると下に詳細が表示されます。</p>
+		<p class="note">
+			{windowed.totalCount.toLocaleString()}件の記録があります。行をクリックすると下に詳細が表示されます。
+		</p>
 
 		<section class="grid-wrap">
 			<BantoGrid

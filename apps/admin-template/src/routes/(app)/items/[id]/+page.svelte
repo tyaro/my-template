@@ -101,7 +101,12 @@
 			<a href="/items">一覧へ戻る</a>
 		</p>
 	{:else if storeReady}
-		<BantoForm {schema} {store} onSubmit={handleSubmit} submitting={(formResource?.saving ?? false) || !canWrite}>
+		<BantoForm
+			{schema}
+			{store}
+			onSubmit={handleSubmit}
+			submitting={(formResource?.saving ?? false) || !canWrite}
+		>
 			{#if canWrite}
 				<button type="button" class="delete" onclick={handleDelete}>削除</button>
 			{/if}

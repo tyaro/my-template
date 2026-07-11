@@ -63,7 +63,9 @@ function computeAggregate<TRow>(column: GridColumn<TRow>, rows: TRow[]): string 
 
 	if (kind === 'count') return rows.length.toLocaleString();
 
-	const numbers = rows.map((row) => toAggregateNumber(getColumnValue(row, column))).filter((n) => !Number.isNaN(n));
+	const numbers = rows
+		.map((row) => toAggregateNumber(getColumnValue(row, column)))
+		.filter((n) => !Number.isNaN(n));
 
 	if (kind === 'sum') {
 		const sum = numbers.reduce((total, n) => total + n, 0);
@@ -126,7 +128,14 @@ export function buildGroupedView<TRow>(
 		}
 
 		const isCollapsed = collapsed(key);
-		entries.push({ kind: 'group', key, label: key, count: bucket.length, aggregates, collapsed: isCollapsed });
+		entries.push({
+			kind: 'group',
+			key,
+			label: key,
+			count: bucket.length,
+			aggregates,
+			collapsed: isCollapsed
+		});
 
 		if (!isCollapsed) {
 			for (const { row, index } of bucket) {
