@@ -159,10 +159,26 @@
 		role="group"
 		aria-label={node.title}
 	>
+		<!--
+			role="toolbar": this is a drag handle wrapping a real close/pop-out
+			<button> group, not a button itself - `role="button"` here would trip
+			axe's nested-interactive rule (a `button`-rolled element's children
+			are ARIA-presentational, which conflicts with the nested buttons being
+			real, operable controls). `toolbar` is a plain grouping role (no
+			`childrenPresentational`) that still requires (and gets, via
+			`aria-label`) an accessible name, without claiming to itself be a
+			single interactive control. Dragging stays pointer-only (see the
+			module doc comment); the close/pop-out buttons remain the keyboard
+			entry points. Not itself put in the tab order (no roving-tabindex
+			management here, unlike a "real" toolbar's expected keyboard model) -
+			svelte-ignore below, since axe has no equivalent complaint (a toolbar
+			isn't required to be focusable itself, only its interactive children
+			are, and they already are).
+		-->
+		<!-- svelte-ignore a11y_interactive_supports_focus -->
 		<div
 			class="titlebar"
-			role="button"
-			tabindex="-1"
+			role="toolbar"
 			aria-label={node.title}
 			onpointerdown={(event) => panelFrameEl && armDrag(event, panelFrameEl, node)}
 		>
@@ -191,7 +207,15 @@
 				✕
 			</button>
 		</div>
-		<div class="body">
+		<!-- role="region" + tabindex="0": the pane's content can overflow and
+		     scroll, and axe's scrollable-region-focusable rule requires a
+		     scrollable region to be reachable (and thus scrollable) via
+		     keyboard, not just pointer/wheel. Svelte's own a11y check disagrees
+		     (a landmark role "shouldn't" carry tabindex) - this is the
+		     WAI-ARIA-recognized scrollable-region pattern axe itself expects,
+		     so the svelte-check warning is the one to suppress. -->
+		<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+		<div class="body" role="region" aria-label={node.title} tabindex="0">
 			{@render panel(node)}
 		</div>
 	</div>
@@ -204,6 +228,19 @@
 		role="group"
 		aria-label={active?.title}
 	>
+		<!--
+			Each `.tab` keeps `role="tab"` (required by the `tablist`/`tab` ARIA
+			pattern) even though - like the plain-panel titlebar above - the
+			active tab nests real close/pop-out <button>s, which is technically
+			the same nested-interactive shape axe flags there. Unlike the
+			titlebar, `tab` can't be swapped for a non-interactive grouping role
+			without giving up tab semantics entirely, and splitting the buttons
+			out of the DOM subtree would be a real restructure, not a role/aria
+			tweak. Left as-is: no docked layout in this app ever starts (or is
+			driven to, in the scanned flows) a tabbed group, so this shape is
+			never exercised by the axe scan in `e2e/visual/a11y.spec.ts` - flagged
+			here for whoever next touches tab-strip interaction/keyboard support.
+		-->
 		<div class="tab-strip" role="tablist">
 			{#each node.children as child, i (child.id)}
 				<div
@@ -245,7 +282,9 @@
 				</div>
 			{/each}
 		</div>
-		<div class="body">
+		<!-- Same scrollable-region-focusable rationale (and svelte-ignore) as the `panel` branch's `.body` above. -->
+		<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+		<div class="body" role="region" aria-label={active?.title} tabindex="0">
 			{#if active}
 				{@render panel(active)}
 			{/if}
@@ -410,6 +449,11 @@
 		min-width: 0;
 		overflow: auto;
 		background: var(--banto-surface);
+	}
+
+	.body:focus-visible {
+		outline: none;
+		box-shadow: var(--banto-focus-ring);
 	}
 
 	.dock-split {
