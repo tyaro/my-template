@@ -1,15 +1,35 @@
 /**
- * Playwright config for Banto's M18 smoke E2E suite.
+ * Playwright config for Banto's E2E suites: TWO independent projects that
+ * never interfere with each other (visual-refresh-plan.md Phase 0).
  *
- * Scope (docs/roadmap.md M18, docs/improvements.md §4): a LAN/REST-mode
- * smoke pass, NOT a mocked-frontend test. `pnpm --filter admin-template
- * build` produces the static SvelteKit build, and a `cargo build -p
- * admin-template-core --bin banto-serve --features embed-ui` produces the
- * binary this config's `webServer` launches directly (NOT `cargo run` -
- * launching the already-built binary keeps startup near-instant and avoids
- * a surprise recompile mid-test-run). Neither build step runs from this
- * config; run them first (see README/CI workflow), same division of labor
- * as `.claude/launch.json`'s `banto-serve` entry.
+ * - `chromium` (testDir `./tests`): the M18 smoke suite described below.
+ * - `visual` (testDir `./visual`): the Phase 0 visual-regression +
+ *   axe-core project (visual-refresh-design.md §12). It runs against the
+ *   SAME static build as `chromium`, but served by plain `vite preview`
+ *   (browser demo mode - InMemory data + fixed admin/admin auth, spec
+ *   §11.1's third environment) instead of `banto-serve`, so its screenshots
+ *   never depend on a live SQLite backend. `pnpm --filter admin-template
+ *   build` must run first here too - see visual/README.md.
+ *
+ * `webServer` is an array (Playwright starts every entry regardless of
+ * which `--project` is selected), so running just the smoke suite still
+ * spins up the idle preview server - harmless as long as `build/` already
+ * exists, which the smoke suite already requires (see below). Root
+ * `package.json`'s `e2e` script pins `--project=chromium` so a plain
+ * `pnpm e2e` never runs the visual suite (and vice versa for `e2e:visual`).
+ *
+ * ---
+ *
+ * `chromium` project scope (docs/roadmap.md M18, docs/improvements.md §4):
+ * a LAN/REST-mode smoke pass, NOT a mocked-frontend test. `pnpm --filter
+ * admin-template build` produces the static SvelteKit build, and a `cargo
+ * build -p admin-template-core --bin banto-serve --features embed-ui`
+ * produces the binary this config's `webServer` launches directly (NOT
+ * `cargo run` - launching the already-built binary keeps startup
+ * near-instant and avoids a surprise recompile mid-test-run). Neither
+ * build step runs from this config; run them first (see README/CI
+ * workflow), same division of labor as `.claude/launch.json`'s
+ * `banto-serve` entry.
  *
  * The whole suite runs single-worker/serial in one spec file
  * (`tests/smoke.spec.ts`) against one shared `page` - each scenario builds
@@ -31,6 +51,10 @@ const repoRoot = path.resolve(dirname, '..');
 
 const PORT = 8799;
 const BASE_URL = `http://127.0.0.1:${PORT}`;
+
+// `visual` project (browser demo mode, vite preview - see doc comment above).
+const VISUAL_PORT = 4173;
+const VISUAL_BASE_URL = `http://127.0.0.1:${VISUAL_PORT}`;
 
 // `SqliteConnectOptions::create_if_missing` (crates/banto-storage/src/
 // sqlite.rs) creates the DB *file* but not missing parent directories, so
@@ -90,22 +114,60 @@ export default defineConfig({
 		// same setting §12.1 prescribes for the visual-regression project.
 		reducedMotion: 'reduce'
 	},
-	projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
-	webServer: {
-		command: bantoServeBin,
-		url: BASE_URL,
-		// Never reuse a leftover server: it would carry over yesterday's
-		// (already-set-up) database, which breaks scenario 1's "database
-		// starts empty" assumption on a second local run.
-		reuseExistingServer: false,
-		timeout: 30_000,
-		env: {
-			PORT: String(PORT),
-			BANTO_BIND: '127.0.0.1',
-			BANTO_DB: dbPath,
-			// spec §8.2 / banto-serve.rs: POST /api/auth/setup is 403'd unless
-			// explicitly opted into - required for scenario 1.
-			BANTO_ALLOW_SETUP: '1'
+	projects: [
+		// M18 smoke suite (unchanged behavior): explicit testDir so adding the
+		// `visual` project below can never pull tests/visual/*.spec.ts into the
+		// wrong project or vice versa.
+		{ name: 'chromium', testDir: './tests', use: { ...devices['Desktop Chrome'] } },
+		// Phase 0 visual regression + axe-core (visual-refresh-design.md §12).
+		// 1440x900 is the project-wide default viewport; individual specs
+		// override it per visual-refresh-plan.md's Phase 0 matrix (1024x768,
+		// 768x1024) via `test.use({ viewport })`.
+		{
+			name: 'visual',
+			testDir: './visual',
+			testMatch: /.*\.spec\.ts/,
+			use: {
+				...devices['Desktop Chrome'],
+				viewport: { width: 1440, height: 900 },
+				reducedMotion: 'reduce',
+				baseURL: VISUAL_BASE_URL
+			},
+			expect: {
+				// §12.1: pixel-level tolerance for the whole project, so specs
+				// only need to name the screenshot, not repeat these options.
+				toHaveScreenshot: { animations: 'disabled', maxDiffPixelRatio: 0.001 }
+			}
 		}
-	}
+	],
+	webServer: [
+		{
+			command: bantoServeBin,
+			url: BASE_URL,
+			// Never reuse a leftover server: it would carry over yesterday's
+			// (already-set-up) database, which breaks scenario 1's "database
+			// starts empty" assumption on a second local run.
+			reuseExistingServer: false,
+			timeout: 30_000,
+			env: {
+				PORT: String(PORT),
+				BANTO_BIND: '127.0.0.1',
+				BANTO_DB: dbPath,
+				// spec §8.2 / banto-serve.rs: POST /api/auth/setup is 403'd unless
+				// explicitly opted into - required for scenario 1.
+				BANTO_ALLOW_SETUP: '1'
+			}
+		},
+		{
+			// Browser demo mode (spec §11.1's third environment): no Rust
+			// backend at all, so unlike `banto-serve` above this has no `env`/DB
+			// to isolate - reusing a server left running from a previous local
+			// run is safe (and convenient for `--update-snapshots` iteration).
+			command: `pnpm --filter admin-template preview --port ${VISUAL_PORT} --strictPort`,
+			cwd: repoRoot,
+			url: VISUAL_BASE_URL,
+			reuseExistingServer: !process.env.CI,
+			timeout: 30_000
+		}
+	]
 });

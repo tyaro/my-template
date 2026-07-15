@@ -49,7 +49,11 @@
 	const baseColumns: GridColumn<Item>[] = [
 		{
 			id: 'open',
-			header: '',
+			// axe-core wcag2a aria-command-name (visual-refresh-plan.md §7.1):
+			// HeaderCell.svelte always renders its cell-body as role="button"
+			// (even for non-sortable columns like this one), so an empty header
+			// left it with no accessible name at all.
+			header: '操作',
 			accessor: () => '',
 			width: 70,
 			resizable: false,
@@ -595,6 +599,7 @@
 					class="file-input"
 					type="file"
 					accept=".csv,.txt"
+					aria-label="CSVインポート"
 					bind:this={importFileInput}
 					onchange={handleImportFileChange}
 				/>

@@ -465,7 +465,9 @@
 		</div>
 
 		<section class="workspace">
-			<h2 class="workspace-heading"><LayoutGrid size={18} aria-hidden="true" />分析ワークスペース</h2>
+			<h2 class="workspace-heading">
+				<LayoutGrid size={18} aria-hidden="true" />分析ワークスペース
+			</h2>
 			<p class="workspace-caption">
 				ドッキングレイアウトのデモです（M8、@banto/dock-svelte）。タイトルバーやタブをドラッグしてパネルを分割・タブ化・再配置でき、ペイン中央にドロップするとタブ、端にドロップすると分割になります。タブを外側にドラッグするとフローティング化します。仕切りのドラッグでサイズ変更、レイアウトは自動保存されます。
 			</p>
@@ -688,7 +690,10 @@
 
 	.dock-toggle.active {
 		border-color: var(--banto-primary);
-		color: var(--banto-primary);
+		/* axe-core wcag2aa color-contrast (visual-refresh-plan.md §7.1): same
+		   fix as Sidebar.svelte's .nav-item.active - plain --banto-primary text
+		   on this tint background falls short of 4.5:1 in both themes. */
+		color: var(--banto-primary-hover);
 		background: color-mix(in srgb, var(--banto-primary) 8%, transparent);
 	}
 
