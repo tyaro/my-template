@@ -202,7 +202,11 @@
 
 	.nav-item.active {
 		background: color-mix(in srgb, var(--banto-primary) 14%, transparent);
-		color: var(--banto-primary);
+		/* axe-core wcag2aa color-contrast (visual-refresh-plan.md §7.1): plain
+		   --banto-primary on this tint background measures ~4.24:1, just under
+		   the 4.5:1 text minimum - --banto-primary-hover (already defined,
+		   previously unused) is darker/lighter enough per theme to clear it. */
+		color: var(--banto-primary-hover);
 		font-weight: 600;
 	}
 

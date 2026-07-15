@@ -523,7 +523,10 @@
 </script>
 
 <div class="page">
-	<PageHeader title="設定" description="テーマ、LANアクセス、バックアップなど、この端末の動作を設定します。" />
+	<PageHeader
+		title="設定"
+		description="テーマ、LANアクセス、バックアップなど、この端末の動作を設定します。"
+	/>
 
 	<div class="settings-grid">
 		<SurfaceCard>
@@ -670,13 +673,7 @@
 
 						<label class="field">
 							ポート番号
-							<input
-								class="banto-input"
-								type="number"
-								min="1"
-								max="65535"
-								bind:value={portDraft}
-							/>
+							<input class="banto-input" type="number" min="1" max="65535" bind:value={portDraft} />
 						</label>
 					</div>
 
@@ -1004,6 +1001,7 @@
 									class="file-input"
 									type="file"
 									accept=".sqlite3"
+									aria-label="ファイルからリストア"
 									bind:this={restoreFileInput}
 									onchange={handleRestoreFileChange}
 								/>
@@ -1021,7 +1019,9 @@
 				<div class="danger-section">
 					<h3>アカウント（パスワード変更）</h3>
 					{#if sessionStore.authDisabled}
-						<p class="note">ログイン不要モードではアカウントがないため、パスワード変更はできません。</p>
+						<p class="note">
+							ログイン不要モードではアカウントがないため、パスワード変更はできません。
+						</p>
 					{:else if changePassword}
 						<form onsubmit={submitChangePassword}>
 							<label class="field">
@@ -1140,7 +1140,10 @@
 
 	.theme-option.selected {
 		border-color: var(--banto-primary);
-		color: var(--banto-primary);
+		/* axe-core wcag2aa color-contrast (visual-refresh-plan.md §7.1): same
+		   fix as Sidebar.svelte's .nav-item.active - plain --banto-primary text
+		   on this tint background falls short of 4.5:1 (light theme). */
+		color: var(--banto-primary-hover);
 		background: color-mix(in srgb, var(--banto-primary) 10%, transparent);
 	}
 

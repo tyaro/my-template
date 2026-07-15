@@ -4,6 +4,11 @@
 		<meta charset="utf-8" />
 		<link rel="icon" href="%sveltekit.assets%/favicon.svg" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<!-- axe-core wcag2a document-title (visual-refresh-plan.md §7.1): a
+		     static fallback so every route has a non-empty <title> even
+		     without its own <svelte:head> override (only routes/panel/[id]
+		     sets a dynamic one, spec §5.3's pop-out windows). -->
+		<title>Banto</title>
 		<script>
 			// Apply the persisted theme + preset before first paint to avoid a
 			// flash. Storage keys must match src/lib/settings.svelte.ts.
@@ -17,7 +22,8 @@
 					var preset = localStorage.getItem('banto.preset');
 					document.documentElement.dataset.bantoPreset = preset === 'glass' ? 'glass' : 'standard';
 					var density = localStorage.getItem('banto.density');
-					document.documentElement.dataset.bantoDensity = density === 'compact' ? 'compact' : 'standard';
+					document.documentElement.dataset.bantoDensity =
+						density === 'compact' ? 'compact' : 'standard';
 				} catch (_) {
 					document.documentElement.dataset.theme = 'light';
 					document.documentElement.dataset.bantoPreset = 'standard';
