@@ -42,7 +42,10 @@
 		/>
 	</div>
 
-	<h1>{pageTitle(page.url.pathname)}</h1>
+	<!-- Deliberately NOT a heading: the document h1 belongs to the page
+	     content (ui/PageHeader.svelte) - two h1s per page would be a strict
+	     a11y violation once every page adopts PageHeader (units 4-5). -->
+	<p class="page-title">{pageTitle(page.url.pathname)}</p>
 
 	<div class="spacer"></div>
 
@@ -105,7 +108,7 @@
 		}
 	}
 
-	h1 {
+	.page-title {
 		margin: 0;
 		font-size: 1rem;
 		font-weight: 600;
