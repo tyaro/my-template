@@ -40,41 +40,6 @@ function formatViolations(violations: import('axe-core').Result[]): string {
 		.join('\n\n');
 }
 
-/**
- * Violations that live inside a `packages/*` component, not admin-template
- * itself - this unit (Phase 0, visual-refresh-plan.md §6 unit 0) only
- * touches `e2e/` + `sampleData.ts`, so a package-side fix (even a
- * single-line CSS color change) is out of scope here and left for the unit
- * that already owns that package's styling (grid-svelte -> unit 4,
- * dock-svelte -> unit 3). Excluded node-by-node (never a blanket rule
- * disable) so every OTHER violation on the same page still fails the scan.
- * Listed in full in the implementation report; each entry must be re-
- * checked (and ideally removed) once its owning unit lands.
- */
-const PACKAGE_OWNED_EXCLUSIONS: Record<string, { selectors: string[]; reason: string }> = {
-	dashboard: {
-		selectors: ['.dock-wrapper [role="button"].titlebar', '.dock-wrapper .body'],
-		// `packages/dock-svelte/src/DockedTree.svelte`: a docked pane's
-		// titlebar is `role="button"` (drag-to-reorder) wrapping a real
-		// focusable pop-out/close <button> (axe `nested-interactive`), and its
-		// scrollable body has no `tabindex` (axe `scrollable-region-focusable`).
-		// `.dock-wrapper` is admin-template's own wrapper around <DockHost>
-		// (routes/(app)/dashboard/+page.svelte), so this only ever matches the
-		// dashboard's docked panes, never grid/form/other controls.
-		reason:
-			'dock-svelte docked-pane titlebar/body structure (nested-interactive, scrollable-region-focusable)'
-	},
-	items: {
-		selectors: ['a.cell-link'],
-		// `packages/grid-svelte/src/BantoGrid.svelte`'s href-cell link uses
-		// plain `--banto-primary` text, which falls short of 4.5:1 on the dark
-		// theme's cell background (same class of issue as the app-side fixes
-		// in Sidebar.svelte/dashboard/+page.svelte/settings/+page.svelte, just
-		// not fixable without editing the package).
-		reason: 'grid-svelte href-cell link color-contrast (dark theme)'
-	}
-};
-
 async function gotoScanned(page: Page, target: ScannedPage): Promise<void> {
 	await page.goto(target.path);
 	await expect(page.getByRole('heading', { name: target.heading })).toBeVisible();
@@ -97,11 +62,7 @@ for (const combo of DIAGONAL_MATRIX) {
 				}
 				await gotoScanned(page, target);
 
-				let builder = new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']);
-				for (const selector of PACKAGE_OWNED_EXCLUSIONS[target.name]?.selectors ?? []) {
-					builder = builder.exclude(selector);
-				}
-				const results = await builder.analyze();
+				const results = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']).analyze();
 
 				expect(results.violations, formatViolations(results.violations)).toEqual([]);
 			});

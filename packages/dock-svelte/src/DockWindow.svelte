@@ -193,7 +193,12 @@
 			</button>
 		</div>
 
-		<div class="body">
+		<!-- role="region" + tabindex="0": same scrollable-region-focusable
+		     rationale (and svelte-ignore, for the same landmark-vs-tabindex
+		     disagreement between svelte-check and axe) as `DockedTree.svelte`'s
+		     `.body`. -->
+		<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+		<div class="body" role="region" aria-label={win.title} tabindex="0">
 			{@render panel(win)}
 		</div>
 	</div>
@@ -312,6 +317,11 @@
 		min-height: 0;
 		overflow: auto;
 		background: var(--banto-surface);
+	}
+
+	.body:focus-visible {
+		outline: none;
+		box-shadow: var(--banto-focus-ring);
 	}
 
 	.handle {

@@ -1296,7 +1296,12 @@
 	}
 
 	.cell-link {
-		color: var(--banto-primary);
+		/* --banto-primary text on the cell background falls short of 4.5:1 on
+		   the dark theme (~4.38:1). --banto-primary-hover is the same
+		   already-defined token used for this exact contrast bump elsewhere
+		   (e.g. Sidebar.svelte's active nav-item text): light #1d4ed8 = 6.7:1,
+		   dark #60a5fa = 6.3:1. */
+		color: var(--banto-primary-hover);
 		text-decoration: none;
 	}
 
