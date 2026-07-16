@@ -1,5 +1,6 @@
 @import 'tailwindcss';
 @import '@banto/theme/css';
+@import '@banto/report/print.css';
 
 /* Tailwind v4 bridge (visual-refresh-design.md §3): exposes --banto-* tokens
    as Tailwind theme variables so utilities like bg-surface / rounded-lg
@@ -112,4 +113,26 @@ body {
 .banto-input:disabled {
 	opacity: 0.5;
 	cursor: not-allowed;
+}
+
+/* M19 report demo (docs/report-plan.md §3.4, deletable per
+   docs/template-scope.md §3): hides the app shell (sidebar/header) while
+   printing a report page, so the printed/PDF output is just the report
+   paper, not the whole app chrome around it.
+   `ReportView.svelte` (@banto/report) adds/removes `.banto-report-active`
+   on `<body>` for exactly as long as it's mounted (see its own doc
+   comment for why this flag lives here instead of a shell prop) - every
+   OTHER page's print output (e.g. printing a grid directly) is completely
+   unaffected, since the class is only ever present while a report is on
+   screen. `main`'s own padding is also zeroed here so the report doesn't
+   sit inside an extra blank margin on top of `@page`'s own print margin. */
+@media print {
+	body.banto-report-active .shell aside,
+	body.banto-report-active .shell header {
+		display: none;
+	}
+
+	body.banto-report-active .shell main {
+		padding: 0;
+	}
 }

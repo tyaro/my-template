@@ -1,7 +1,7 @@
 {
   "name": "@banto/report",
   "version": "0.1.0",
-  "description": "Banto report: headless report template parser/binder/renderer (Markdown subset + data binding), docs/report-plan.md M19 unit A (headless core only - ReportView.svelte, print CSS and demo page are unit B)",
+  "description": "Banto report: report template parser/binder/renderer (Markdown subset + data binding) + ReportView.svelte preview/print UI + print CSS (docs/report-plan.md M19, unit A + unit B)",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -13,7 +13,8 @@
     ".": {
       "svelte": "./src/index.ts",
       "default": "./src/index.ts"
-    }
+    },
+    "./print.css": "./src/print.css"
   },
   "files": [
     "src"

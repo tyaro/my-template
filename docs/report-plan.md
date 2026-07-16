@@ -1,7 +1,7 @@
 # M19: 帳票/印刷 `@banto/report` 計画書
 
 作成日: 2026-07-16  
-状態: 計画（レビュー待ち）  
+状態: 実装済み（単位A・単位B完了、2026-07-16）  
 提供形態: `@banto/report` パッケージ + 削除可能な最小デモページ
 （roadmap.md「M19〜M21 の提供形態」の決定に従う）
 
@@ -127,10 +127,26 @@ HTML として描画・印刷する帳票エンジンを提供する。日報・
 
 ## 4. 実装単位
 
-| 順序 | 内容 | 主な対象 | 規模 |
-|---|---|---|---|
-| A | ヘッドレスコア（parse / bind / html + テスト） | `packages/report/src/core` | M |
-| B | ReportView + 印刷CSS + デモページ + E2E + docs | `ReportView.svelte`, `items/report`, README ほか | S–M |
+| 順序 | 内容 | 主な対象 | 規模 | 状態 |
+|---|---|---|---|---|
+| A | ヘッドレスコア（parse / bind / html + テスト） | `packages/report/src/core` | M | 完了 |
+| B | ReportView + 印刷CSS + デモページ + E2E + docs | `ReportView.svelte`, `items/report`, README ほか | S–M | 完了 |
+
+実装メモ（単位B）:
+
+- `@page` の A4/landscape 切替は `ReportView.svelte` が所有（print.css は
+  `.report-body` のコンテンツ規則のみ）。ベースの `@page { size: A4;
+  margin: 12mm }` は常時、landscape 時のみ `<svelte:head>` 経由で
+  `@page { size: A4 landscape }` を追加注入し、カスケードで上書きする
+  （同一画面に複数の異なる向きの ReportView が同時に印刷される想定は
+  v1 スコープ外）。
+- 印刷時のシェル（サイドバー/ヘッダー）非表示は、`ReportView` がマウント
+  中だけ `document.body` に `banto-report-active` クラスを付与し、
+  `apps/admin-template/src/app.css` 側の `@media print` がそのクラス配下の
+  `.shell aside` / `.shell header` を隠す方式（`ReportView` 自体はアプリの
+  シェル構造を知らない - クラスの存在だけを契約にする）。
+- 日報デモの `{{#if lowStock}}` は常に真になる構成（spec §3.5 の想定通り、
+  1,000件シード・在庫0〜499の一様分布では在庫僅少が必ず発生する）。
 
 ## 5. 検証計画
 

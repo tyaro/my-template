@@ -59,6 +59,9 @@ importers:
       '@banto/grid-svelte':
         specifier: workspace:*
         version: link:../../packages/grid-svelte
+      '@banto/report':
+        specifier: workspace:*
+        version: link:../../packages/report
       '@banto/theme':
         specifier: workspace:*
         version: link:../../packages/theme

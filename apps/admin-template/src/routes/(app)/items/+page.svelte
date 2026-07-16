@@ -18,7 +18,7 @@
 		notify
 	} from '@banto/admin-core';
 	import { goto } from '$app/navigation';
-	import { Download, Plus, Upload } from '@lucide/svelte';
+	import { Download, FileText, Plus, Upload } from '@lucide/svelte';
 	import type { Item } from '$lib/banto/sampleData';
 	import { sessionStore } from '$lib/session.svelte';
 	import { canWriteResources } from '$lib/permissions';
@@ -577,6 +577,19 @@
 					<option value="updatedAt">更新日</option>
 				</select>
 			</label>
+			<!-- M19 report demo (docs/report-plan.md §3.5, deletable per
+			     docs/template-scope.md §3): ghost so it reads as a secondary,
+			     non-mutating action alongside CSVエクスポート below - `canWrite`
+			     is deliberately NOT checked, a `viewer` can read a report same
+			     as they can export CSV. -->
+			<button
+				type="button"
+				class="banto-btn banto-btn--ghost"
+				onclick={() => goto('/items/report')}
+			>
+				<FileText size={16} aria-hidden="true" />
+				日報
+			</button>
 			<button
 				type="button"
 				class="banto-btn banto-btn--secondary"

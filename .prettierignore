@@ -8,3 +8,11 @@ docs/*.md
 
 # Generated/vendored, not hand-authored
 apps/admin-template/src-tauri/gen
+
+# M19 report demo (docs/report-plan.md §3.1): *.md here is the @banto/report
+# template DSL (Markdown subset + {{ }} data-bind syntax), not prose.
+# Prettier's Markdown table formatter rewrites `{{#each}}`/`{{/each}}`
+# control lines into table cells (wraps them in `| ... |`), which the
+# parser (packages/report/src/core/parse.ts) does not recognize as a
+# row-repeat block anymore - silently breaking the template.
+apps/admin-template/src/lib/banto/reports/*.md
