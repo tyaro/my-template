@@ -27,7 +27,7 @@
 | M18 | 基盤整備（E2E + lint/format + パッケージ配布） | — | M | 進行中 |
 | M19 | 帳票/印刷 `@banto/report`（MDテンプレート方式） | — | M–L | 計画 |
 | M20 | 添付ファイル/画像管理 | — | M | 完了 |
-| M21 | バーコード/QR wedge 入力検出 | — | S | 計画 |
+| M21 | バーコード/QR wedge 入力検出 | — | S | 完了 |
 | M22 | ビジュアルリフレッシュ（Modern Operations Console 化） | — | L | 完了 (PR #25) |
 
 M14〜M17 はバックログから順次昇格。M18〜M21 は 2026-07-12 の
@@ -353,12 +353,43 @@ template-scope.md §3）。単位D のE2Eシナリオ追加が `AttachmentsPanel
 （attachments-plan.md §9 に経緯を記録）。スモークE2Eは11シナリオ
 （添付のアップロード/サムネイル/削除 + viewer 読み取り専用確認を含む）。
 
-### M21: バーコード/QR wedge 入力検出（計画）
+### M21: バーコード/QR wedge 入力検出（完了）
 
 ハードウェアスキャナのキーボードウェッジ入力を人間のタイプと区別して
 1コードとして通知するヘッドレスコア + フォーカス管理アクション。小粒。
 バックエンド・DB・UI 依存ゼロのため純粋なパッケージとして提供し、
 テンプレートには同梱しない（README のレシピのみ）。
+
+実装: `@banto/scan-wedge`（`packages/attachments` と同一の devDependencies
+構成・config一式、新規依存追加なし）。
+
+- `src/core/detector.ts`: DOM非依存のヘッドレスコア
+  `createWedgeDetector({ onScan, minLength?, maxInterKeyMs?, terminators? })`。
+  既定値は `minLength` 4文字 / `maxInterKeyMs` 35ms / `terminators`
+  `['Enter']`。`Date.now()`・タイマーを一切使わず `event.timeStamp` のみで
+  経過時間を判定するためテストが決定的。印字1文字キーのみバッファし、
+  直前キーとの間隔が `maxInterKeyMs` を超えたら今回の1文字にバッファを
+  リセット。Ctrl/Alt/Meta押下中・IME変換中・Shift等の非印字多文字キーは
+  バッファを壊さず無視（Shiftキー自体のkeydownは大文字スキャンを妨げない）。
+- `src/listen.ts`: DOMラッパー `listenWedge(target, options)`。
+  capture フェーズ `keydown` をコアへ転送し、スキャン成立時は既定で
+  終端キーの `preventDefault()`、`ignoreEditable` で入力欄フォーカス中の
+  検出を抑止。「スキャン中の文字はフォーカス中の入力欄に混入済みで
+  後から抑止できない」制約と回避策をJSDocに明記。
+- `src/actions.ts`: Svelte 5 アクション `wedgeInput`（専用入力欄でスキャン
+  検知しクリア + `bind:value` と整合する `input` イベント発火）、
+  `keepFocused`（キオスク向けのフォーカス維持、副作用をJSDocに明記）。
+- `src/index.ts` で全公開APIを named export。
+- テスト（vitest、26件）: コア10件（高速バースト・80ms不発・minLength未満・
+  途中リセット・Shift混在・Ctrlコンボ・IME・連続2スキャン・reset()・
+  terminatorsカスタム）、listen 7件、actions 9件。ワークスペース全体が
+  `environment: 'node'`（jsdom/happy-dom 不使用、新規依存も禁止のため）
+  のため、`listen.ts`/`actions.ts` のテストは `EventTarget`/`HTMLElement`
+  の手製スタンドインで実DOM相当の経路を検証。
+- README に「バーコード/QRスキャナ入力」レシピ節を追加（グローバル検出・
+  `use:wedgeInput`・キオスク`use:keepFocused`の3例）。
+- `apps/admin-template` への配線・依存追加は行っていない
+  （`pnpm check`/`lint`/`test`/`build`/`e2e` 全通過、既存11件のE2Eに影響なし）。
 
 ### M22: ビジュアルリフレッシュ（完了）
 
