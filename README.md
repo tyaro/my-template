@@ -179,6 +179,21 @@ Tauriコマンド）を自リソースに書き換え、次にフロント側
    （`attachments` テーブルは他のテーブルから参照されないため、単独で
    安全に外せる）。
 
+**帳票デモ（`@banto/report` + 日報デモ、M19）**:
+DB/バックエンド配線を一切持たない最小デモのため、以下だけで外せる。
+
+1. `apps/admin-template/src/routes/(app)/items/+page.svelte` の「日報」
+   ボタン（`M19 report demo` コメントの1ブロック）と `FileText` の import
+   を削除。
+2. `apps/admin-template/src/routes/(app)/items/report/`（ルート丸ごと）と
+   `src/lib/banto/reports/`（`daily.md`・`raw.d.ts`）を削除。
+3. `apps/admin-template/package.json` の `@banto/report` 依存、
+   `src/app.css` の `@import '@banto/report/print.css'` と
+   `.banto-report-active` 用の `@media print` ブロックを外す。
+   `@banto/report` パッケージ自体（`packages/report`）はテンプレートに
+   同梱したままでも他に影響しないが、完全に外す場合は
+   `pnpm-workspace.yaml` の対象から漏れないことを確認する。
+
 ## 開発
 
 前提: Node 24+ / pnpm 10+ / Rust（Tauriの[プラットフォーム別前提条件](https://tauri.app/start/prerequisites/)）

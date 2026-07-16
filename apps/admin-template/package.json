@@ -17,6 +17,7 @@
     "@banto/dock-svelte": "workspace:*",
     "@banto/forms": "workspace:*",
     "@banto/grid-svelte": "workspace:*",
+    "@banto/report": "workspace:*",
     "@banto/theme": "workspace:*",
     "@lucide/svelte": "^1.24.0",
     "@tauri-apps/api": "^2.5.0"

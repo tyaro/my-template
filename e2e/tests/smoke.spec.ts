@@ -390,4 +390,26 @@ test.describe.serial('Banto LAN/REST smoke', () => {
 		await page.getByRole('button', { name: '今すぐバックアップ' }).click();
 		await expect(backupRows).toHaveCount(1);
 	});
+
+	// M19 report demo (docs/report-plan.md §3.6, docs/template-scope.md §3):
+	// items -> 日報 -> the report renders. Deliberately does NOT trigger
+	// window.print() (spec §3.6) - only confirms the template rendered real
+	// data, not the print dialog itself. Placed last: by this point
+	// scenarios 3 and 8 have each created then deleted exactly one item
+	// (net zero), so the grid is back to its 1,000-row seed baseline and
+	// the report's total-count string is deterministic.
+	test('12. items: 日報 report renders a heading, totals, and a category table', async () => {
+		await page.goto('/items');
+		await page.getByRole('button', { name: '日報' }).click();
+		await expect(page).toHaveURL(/\/items\/report$/);
+
+		await expect(page.getByRole('heading', { level: 1, name: /^日報/ })).toBeVisible();
+		await expect(page.getByText('1,000件')).toBeVisible();
+
+		// PRODUCT_BASES seeds exactly 12 categories (db.rs) and byCategory
+		// (dashboard.ts) never folds them, so the rendered category table has
+		// exactly 12 data rows.
+		const categoryRows = page.locator('.report-body table').first().locator('tbody tr');
+		await expect(categoryRows).toHaveCount(12);
+	});
 });
