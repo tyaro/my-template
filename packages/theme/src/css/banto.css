@@ -42,7 +42,9 @@
 	--banto-focus-ring: 0 0 0 2px color-mix(in srgb, var(--banto-primary) 45%, transparent);
 
 	/* Layout */
-	--banto-radius: var(--banto-radius-md); /* visual-refresh-design.md §2.2: alias, value unchanged (6px) */
+	--banto-radius: var(
+		--banto-radius-md
+	); /* visual-refresh-design.md §2.2: alias, value unchanged (6px) */
 	--banto-shell-sidebar-width: 240px;
 	--banto-shell-sidebar-width-collapsed: 56px;
 	--banto-shell-header-height: 48px;
@@ -69,7 +71,9 @@
      ghost) below, reusing --banto-dock-titlebar-height for both the floating
      titlebar and the docked pane titlebar/tab-strip height. */
 	--banto-dock-titlebar-height: 32px;
-	--banto-dock-shadow: var(--banto-shadow-lg); /* visual-refresh-design.md §2.2: alias, value unchanged */
+	--banto-dock-shadow: var(
+		--banto-shadow-lg
+	); /* visual-refresh-design.md §2.2: alias, value unchanged */
 	--banto-dock-divider: var(--banto-border);
 	--banto-dock-divider-hover: var(--banto-primary);
 	--banto-dock-snap-fill: color-mix(in srgb, var(--banto-primary) 18%, transparent);

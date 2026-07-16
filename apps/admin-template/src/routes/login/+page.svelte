@@ -132,12 +132,7 @@
 
 					<label>
 						ユーザー名
-						<input
-							class="banto-input"
-							type="text"
-							bind:value={username}
-							autocomplete="username"
-						/>
+						<input class="banto-input" type="text" bind:value={username} autocomplete="username" />
 					</label>
 
 					<label>
@@ -177,12 +172,7 @@
 
 					<label>
 						ユーザー名
-						<input
-							class="banto-input"
-							type="text"
-							bind:value={username}
-							autocomplete="username"
-						/>
+						<input class="banto-input" type="text" bind:value={username} autocomplete="username" />
 					</label>
 
 					<label>

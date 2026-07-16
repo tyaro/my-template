@@ -237,7 +237,10 @@
 </script>
 
 <div class="page">
-	<PageHeader title="ユーザー管理" description="アカウントの作成・編集・削除・パスワードリセットを行います。" />
+	<PageHeader
+		title="ユーザー管理"
+		description="アカウントの作成・編集・削除・パスワードリセットを行います。"
+	/>
 
 	{#if !available}
 		<EmptyState
