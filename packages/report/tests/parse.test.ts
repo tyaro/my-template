@@ -183,7 +183,12 @@ describe('parse - each/if control blocks', () => {
 			{
 				type: 'each',
 				path: 'items',
-				children: [{ type: 'paragraph', children: [{ type: 'placeholder', path: 'name', formatter: undefined }] }]
+				children: [
+					{
+						type: 'paragraph',
+						children: [{ type: 'placeholder', path: 'name', formatter: undefined }]
+					}
+				]
 			}
 		]);
 		expect(result.errors).toEqual([]);
@@ -201,7 +206,13 @@ describe('parse - each/if control blocks', () => {
 	});
 
 	it('parses {{#each}} wrapping a run of table rows (row-repeat form)', () => {
-		const template = ['| Name | Stock |', '|---|---:|', '{{#each lowStock}}', '| {{ name }} | {{ stock | number }} |', '{{/each}}'].join('\n');
+		const template = [
+			'| Name | Stock |',
+			'|---|---:|',
+			'{{#each lowStock}}',
+			'| {{ name }} | {{ stock | number }} |',
+			'{{/each}}'
+		].join('\n');
 		const result = parse(template);
 		const table = result.blocks[0];
 		if (table.type !== 'table') throw new Error('expected table');
@@ -260,17 +271,25 @@ describe('parse - each/if control blocks', () => {
 	});
 
 	it('parses nested block-level each inside each', () => {
-		const result = parse('{{#each departments}}\n## {{ name }}\n{{#each staff}}\n- {{ . }}\n{{/each}}\n{{/each}}');
+		const result = parse(
+			'{{#each departments}}\n## {{ name }}\n{{#each staff}}\n- {{ . }}\n{{/each}}\n{{/each}}'
+		);
 		expect(result.blocks).toEqual([
 			{
 				type: 'each',
 				path: 'departments',
 				children: [
-					{ type: 'heading', level: 2, children: [{ type: 'placeholder', path: 'name', formatter: undefined }] },
+					{
+						type: 'heading',
+						level: 2,
+						children: [{ type: 'placeholder', path: 'name', formatter: undefined }]
+					},
 					{
 						type: 'each',
 						path: 'staff',
-						children: [{ type: 'list', items: [[{ type: 'placeholder', path: '.', formatter: undefined }]] }]
+						children: [
+							{ type: 'list', items: [[{ type: 'placeholder', path: '.', formatter: undefined }]] }
+						]
 					}
 				]
 			}
@@ -287,16 +306,16 @@ describe('parse - malformed control blocks', () => {
 			{
 				type: 'each',
 				path: 'items',
-				children: [{ type: 'list', items: [[{ type: 'placeholder', path: 'name', formatter: undefined }]] }]
+				children: [
+					{ type: 'list', items: [[{ type: 'placeholder', path: 'name', formatter: undefined }]] }
+				]
 			}
 		]);
 	});
 
 	it('records an error for a mismatched closing tag', () => {
 		const result = parse('{{#each items}}\n- {{ name }}\n{{/if}}');
-		expect(result.errors).toEqual([
-			'mismatched closing tag: expected {{/each}}, found {{/if}}'
-		]);
+		expect(result.errors).toEqual(['mismatched closing tag: expected {{/each}}, found {{/if}}']);
 	});
 
 	it('records an error for a stray closing tag with nothing open', () => {

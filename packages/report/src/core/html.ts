@@ -35,13 +35,18 @@ function renderBlock(block: ResolvedBlock, warnings: string[]): string {
 			return `<hr class="report-page-break">`;
 		case 'table': {
 			const thead = block.header
-				.map((cell, idx) => `<th${alignAttr(block.align[idx])}>${renderInline(cell, warnings)}</th>`)
+				.map(
+					(cell, idx) => `<th${alignAttr(block.align[idx])}>${renderInline(cell, warnings)}</th>`
+				)
 				.join('');
 			const tbody = block.rows
 				.map(
 					(row) =>
 						`<tr>${row
-							.map((cell, idx) => `<td${alignAttr(block.align[idx])}>${renderInline(cell, warnings)}</td>`)
+							.map(
+								(cell, idx) =>
+									`<td${alignAttr(block.align[idx])}>${renderInline(cell, warnings)}</td>`
+							)
 							.join('')}</tr>`
 				)
 				.join('');

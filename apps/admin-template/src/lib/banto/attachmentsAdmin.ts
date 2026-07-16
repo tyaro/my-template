@@ -161,7 +161,10 @@ async function httpJson<T>(path: string, init: HttpJsonInit): Promise<T> {
 }
 
 /** `viewer`+: every attachment for one record, newest first (spec §3.5). */
-export async function listAttachments(resource: string, resourceId: string): Promise<AttachmentMeta[]> {
+export async function listAttachments(
+	resource: string,
+	resourceId: string
+): Promise<AttachmentMeta[]> {
 	if (!isAttachmentsAvailable()) throw demoModeError();
 	if (getBantoMode() === 'tauri') {
 		return invokeCommand<AttachmentMeta[]>('attachments_list', { resource, resourceId });

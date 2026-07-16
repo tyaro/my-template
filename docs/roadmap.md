@@ -1,7 +1,7 @@
 # Banto 機能拡張ロードマップ（M10〜）
 
 作成日: 2026-07-08（同日改訂: スコープをテンプレート汎用機能に限定）
-状態: **M10〜M17 完了（2026-07-12）。M18 進行中**
+状態: **M10〜M22 完了（2026-07-16）**
 
 [ui-framework-spec.md](ui-framework-spec.md) の M0〜M9（完了）に続く機能拡張計画。
 
@@ -24,7 +24,7 @@
 | M15 | CSV/Excel エクスポート・インポート | — | M | 完了 (PR #16) |
 | M16 | コマンドパレット（Ctrl+K） | — | S–M | 完了 (PR #17) |
 | M17 | SQLite バックアップ/リストア | — | M | 完了 (PR #18) |
-| M18 | 基盤整備（E2E + lint/format + パッケージ配布） | — | M | 進行中 |
+| M18 | 基盤整備（E2E + lint/format + パッケージ配布） | — | M | 完了（2026-07-16） |
 | M19 | 帳票/印刷 `@banto/report`（MDテンプレート方式） | — | M–L | 完了 |
 | M20 | 添付ファイル/画像管理 | — | M | 完了 |
 | M21 | バーコード/QR wedge 入力検出 | — | S | 完了 |
@@ -304,6 +304,35 @@ REST/Tauri 両経路のテスト。監査ログに記録される。
 入る。E2E スモークが CI で安定して通る。`pnpm publish --dry-run` が
 全パッケージで成功する。README の手順に従い新規利用者がデモを
 自リソースに差し替えられる。
+
+**完了サマリ（2026-07-16）**: lint/format 基盤・スモークE2E・README差し替え/
+削除手順・全パッケージ `publishConfig` は先行フェーズで整備済みだった。
+残っていた4ギャップを本セッションで解消:
+
+1. `.github/workflows/ci.yml` の rust ジョブ `-p` リストに、CI 導入後に
+   M20 で追加された `banto-attachments` クレートが漏れていたのを追加
+   （`cargo check`/`clippy`/`test`）
+2. `e2e` ジョブに `pnpm e2e:visual`（Playwright visual regression +
+   axe-core、40シナリオ）のステップを追加。既存 `pnpm build` の
+   静的出力に対する `vite preview`（`playwright.config.ts` の
+   `webServer` 配列2本目）でベースライン照合。失敗時の差分画像確認用に
+   `e2e/test-results/` のアーティファクトアップロード（retention-days: 3）
+   を追加
+3. `pnpm -r publish --dry-run --no-git-checks` を全9パッケージ
+   （admin-core/attachments/charts/dock-svelte/forms/grid-svelte/
+   report/scan-wedge/theme）で実行し成功を確認（修正不要 — 各tarballは
+   `LICENSE`（ルートMITの自動同梱）+ `package.json` + `src/**` のみで
+   publishing.md の想定どおり）
+4. `docs/template-scope.md` §6 の宿題2件（README のデモ差し替え/
+   オプション資産削除手順）を確認したところ既に README §2/§3 に
+   dock・charts・glass・コマンドパレット（パレット）・attachments・report
+   すべての削除手順が揃っていたため追記なしで `[x]` 化
+
+副産物として `pnpm format:check` が既存コード11ファイルで失敗していたのを
+発見し、Prettier の自動整形（空白/改行のみ、挙動変更なし）で解消した。
+`pnpm check`/`lint`/`format:check`/`test`/`build`/`cargo check`/`clippy`/
+`test`/`e2e`（12件）/`e2e:visual`（40件）/`publish --dry-run`（9パッケージ）
+すべて成功を確認済み。
 
 ### M19〜M21 の提供形態（2026-07-15 決定）
 

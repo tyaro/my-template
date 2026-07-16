@@ -65,12 +65,7 @@
 	{#if !sessionStore.authDisabled}
 		<Menu label="ユーザーメニュー" placement="bottom-end">
 			{#snippet trigger(props)}
-				<button
-					{...props}
-					type="button"
-					class="user-trigger"
-					aria-label="ユーザーメニューを開く"
-				>
+				<button {...props} type="button" class="user-trigger" aria-label="ユーザーメニューを開く">
 					<span class="avatar" aria-hidden="true">{avatarInitial}</span>
 					<span class="user-name">{displayName}</span>
 				</button>

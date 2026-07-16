@@ -23,7 +23,9 @@ describe('renderHtml - blocks', () => {
 		const blocks: ResolvedBlock[] = [
 			{ type: 'list', items: [[{ type: 'text', value: 'A' }], [{ type: 'text', value: 'B' }]] }
 		];
-		expect(renderHtml(blocks).html).toBe('<div class="report-body"><ul><li>A</li><li>B</li></ul></div>');
+		expect(renderHtml(blocks).html).toBe(
+			'<div class="report-body"><ul><li>A</li><li>B</li></ul></div>'
+		);
 	});
 
 	it('renders a page break as `<hr class="report-page-break">`', () => {
@@ -42,7 +44,13 @@ describe('renderHtml - blocks', () => {
 					[{ type: 'text', value: 'B' }],
 					[{ type: 'text', value: 'C' }]
 				],
-				rows: [[[{ type: 'text', value: '1' }], [{ type: 'text', value: '2' }], [{ type: 'text', value: '3' }]]]
+				rows: [
+					[
+						[{ type: 'text', value: '1' }],
+						[{ type: 'text', value: '2' }],
+						[{ type: 'text', value: '3' }]
+					]
+				]
 			}
 		];
 		expect(renderHtml(blocks).html).toBe(

@@ -120,7 +120,9 @@ describe('renderReport - warnings', () => {
 describe('renderReport - XSS', () => {
 	it('escapes a <script> payload in a data value so it cannot execute', () => {
 		const result = renderReport('{{ payload }}', { payload: '<script>alert(1)</script>' });
-		expect(result.html).toBe('<div class="report-body"><p>&lt;script&gt;alert(1)&lt;/script&gt;</p></div>');
+		expect(result.html).toBe(
+			'<div class="report-body"><p>&lt;script&gt;alert(1)&lt;/script&gt;</p></div>'
+		);
 		expect(result.html).not.toContain('<script>');
 	});
 
