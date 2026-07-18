@@ -9,9 +9,24 @@ Tauri v2 + SvelteKit（Svelte 5 Runes）向けのフルスタック管理画面
 
 - 仕様書: [docs/ui-framework-spec.md](docs/ui-framework-spec.md)
 - 機能拡張ロードマップ（M10〜）: [docs/roadmap.md](docs/roadmap.md)
+- 保守者向け規約: [docs/conventions.md](docs/conventions.md)
 - 公開手順: [docs/publishing.md](docs/publishing.md)
 - ライセンス: [MIT](LICENSE)
 - npmスコープ: `@banto/*` / Rustクレート: `banto-*`
+
+## ドキュメントの2トラック
+
+読者によってドキュメントを2つのトラックに分けている。
+
+- **トラックB（このREADME）= アプリ作者向け**: このテンプレートを**コピーして
+  自分のアプリを作る人**向け。リネーム・デモ差し替え・オプション削除・スキャナ
+  入力レシピ・セットアップ手順はすべてこの下にある。
+- **トラックA（`docs/`）= 保守者向け**: テンプレート**自体を保守・機能拡張する人**
+  向け。不変条件（[docs/conventions.md](docs/conventions.md)）・仕様書・スコープ判定
+  ・実装計画・配布規約。AIエージェントの道案内は [AGENTS.md](AGENTS.md) / [CLAUDE.md](CLAUDE.md)。
+
+アップストリームを追わずハードフォークするなら、トラックA（`docs/`・`AGENTS.md`・
+`CLAUDE.md`）は不要になれば削除してよい（テンプレートの「すべては削除可能」方針）。
 
 ## 主な機能
 
