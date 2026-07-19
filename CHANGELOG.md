@@ -20,6 +20,11 @@
 
 ## [Unreleased]
 
+- P3-3: Svelte コンポーネントテストを導入（`@banto/forms` の `BantoForm`・
+  `@banto/grid-svelte` の `BantoGrid` にマウント+基本操作テストを各5件）。
+  `@testing-library/svelte` + `jsdom` を両パッケージの devDependencies に
+  追加し、component テストのみ `// @vitest-environment jsdom` で opt-in
+  （純ロジックテストの環境は不変、dependencies/peerDependencies は空を維持）
 - P3-6/P4-4: CI の全サードパーティ Action をコミット SHA に固定し
   （checkout/pnpm-action-setup/setup-node/rust-cache/upload-artifact/
   install-action/github-script の7種。`dtolnay/rust-toolchain@stable` は
