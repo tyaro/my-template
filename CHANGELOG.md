@@ -20,6 +20,12 @@
 
 ## [Unreleased]
 
+- fix(backup): `BackupService::create` の `created_at` を、生成した
+  ファイルの mtime（`list()` と同一の取得源）から算出するよう修正。
+  従来は `datetime('now')` 由来で、`VACUUM INTO` が秒境界をまたぐと
+  create と list で最大1秒ずれる不整合があり、Windows で決定論的に
+  `create_then_list_then_read_round_trips` を落としていた（P3-3 の CI で
+  顕在化）
 - P3-3: Svelte コンポーネントテストを導入（`@banto/forms` の `BantoForm`・
   `@banto/grid-svelte` の `BantoGrid` にマウント+基本操作テストを各5件）。
   `@testing-library/svelte` + `jsdom` を両パッケージの devDependencies に
