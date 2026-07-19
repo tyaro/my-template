@@ -7,6 +7,7 @@
 		mapCsvHeader,
 		parseCsv,
 		toCsv,
+		columnsFromSchema,
 		type CellEdit,
 		type GridColumn
 	} from '@banto/grid-svelte';
@@ -20,6 +21,7 @@
 	import { goto } from '$app/navigation';
 	import { Download, FileText, Plus, Upload } from '@lucide/svelte';
 	import type { Item } from '$lib/banto/sampleData';
+	import { itemsSchema } from '$lib/banto/resources/items';
 	import { sessionStore } from '$lib/session.svelte';
 	import { canWriteResources } from '$lib/permissions';
 	import {
@@ -69,75 +71,23 @@
 			filterable: true,
 			filterType: 'number'
 		},
-		{
-			id: 'name',
-			header: '商品名',
-			accessor: 'name',
-			width: 260,
-			filterable: true,
-			filterType: 'text',
-			editable: true,
-			editor: 'text',
-			// Same rules/messages as itemsSchema.name (src/lib/banto/setup.ts).
-			// Trim before checking emptiness/length, matching Rust's
-			// `input.name.trim()` in validate_item_input (items.rs) exactly -
-			// otherwise a whitespace-only name passes here and only fails
-			// after a round trip to the real Tauri backend.
-			validate: (value) => {
-				const str = String(value ?? '').trim();
-				if (str.length === 0) return '必須項目です';
-				if (str.length > 40) return '40文字以内で入力してください';
-				return null;
+		// M23 (spec §3.1): every schema-backed column (name/price/stock/
+		// updatedAt) is DERIVED from the same itemsSchema the create/edit forms
+		// use - header labels, editors, and validation rules (the integer
+		// checks, the trimmed-length name bounds, the exact Japanese messages)
+		// all come from that one definition instead of being duplicated here.
+		// `overrides` carries only the presentation tuning derivation cannot
+		// know (widths, the ¥ price format). Hand-written columns remain for
+		// everything outside the schema: the row-link 操作 column above and the
+		// DB-generated id.
+		...columnsFromSchema<Item>(itemsSchema, {
+			overrides: {
+				name: { width: 260 },
+				price: { width: 120, format: (value) => `¥${(value as number).toLocaleString()}` },
+				stock: { width: 100 },
+				updatedAt: { width: 140 }
 			}
-		},
-		{
-			id: 'price',
-			header: '価格',
-			accessor: 'price',
-			width: 120,
-			align: 'right',
-			filterable: true,
-			filterType: 'number',
-			format: (value) => `¥${(value as number).toLocaleString()}`,
-			editable: true,
-			editor: 'number',
-			// Same rules/messages as itemsSchema.price (src/lib/banto/setup.ts).
-			// Rust's ItemInput.price is `i64` (items.rs), so a fractional value
-			// (e.g. "10.5") must be rejected here too, not just bounds-checked.
-			validate: (value) => {
-				const num = Number(value);
-				if (num < 0) return '0以上で入力してください';
-				if (num > 99999) return '99999以下で入力してください';
-				if (!Number.isInteger(num)) return '整数で入力してください';
-				return null;
-			}
-		},
-		{
-			id: 'stock',
-			header: '在庫',
-			accessor: 'stock',
-			width: 100,
-			align: 'right',
-			filterable: true,
-			filterType: 'number',
-			editable: true,
-			editor: 'number',
-			// Same rule/message as itemsSchema.stock (src/lib/banto/setup.ts).
-			// Rust's ItemInput.stock is `i64` (items.rs), so a fractional value
-			// must be rejected here too, not just bounds-checked.
-			validate: (value) => {
-				const num = Number(value);
-				if (num < 0) return '0以上で入力してください';
-				if (!Number.isInteger(num)) return '整数で入力してください';
-				return null;
-			}
-		},
-		{
-			id: 'updatedAt',
-			header: '更新日',
-			accessor: 'updatedAt',
-			width: 140
-		}
+		})
 	];
 
 	/**

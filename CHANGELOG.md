@@ -20,6 +20,10 @@
 
 ## [Unreleased]
 
+- M23: スキーマ→グリッド列の自動導出 `columnsFromSchema` を
+  `@banto/grid-svelte` に追加（フォームと同一ルール・同一メッセージの
+  バリデータ込み。items 一覧を導出ベースへ書き換え、仕様 §3.1 の
+  「スキーマを1つ書けば一覧と編集フォームが両方生える」を実装）
 - refactor: `rest.rs`（4,069行）をリソース別モジュールへ分割
   （`rest/mod.rs` = ルート表 doc + 共有ガード + `api_router`、
   `rest/{items,users,auth,ui_settings,audit,backups,attachments}.rs`、

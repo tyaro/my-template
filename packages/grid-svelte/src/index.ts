@@ -21,6 +21,13 @@ export { rangeToTsv, parseTsv, parseCellInput } from './core/clipboard';
 export { prepareCommit, type PrepareCommitResult } from './core/edit';
 export { buildGroupedView, type GroupEntry, type RowEntry, type FlatEntry } from './core/group';
 export {
+	columnsFromSchema,
+	type ColumnsSchema,
+	type SchemaField,
+	type SchemaFieldType,
+	type ColumnsFromSchemaOptions
+} from './core/schema';
+export {
 	toCsv,
 	csvForExcel,
 	csvFilename,
