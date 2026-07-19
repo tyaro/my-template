@@ -1,7 +1,8 @@
 /**
  * Schema types for @banto/forms (spec §7.2). A `FormSchema` is shared with
  * a resource definition's `schema` (spec §3.1) so one definition drives both
- * the grid columns (future) and the form UI.
+ * the grid columns (@banto/grid-svelte's `columnsFromSchema`, M23 - a
+ * STRUCTURAL mirror of these types, kept dependency-free) and the form UI.
  */
 
 export type FieldType =

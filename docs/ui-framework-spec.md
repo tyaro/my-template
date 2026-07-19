@@ -105,6 +105,11 @@ defineResource({
   CRUDページが規約ベースで導出される（refineの`resources`プロップ相当）。
 - `schema`から`columns`を自動導出できるようにし、「スキーマを1つ書けば
   一覧と編集フォームが両方生える」体験を最重要ゴールとする。
+  → **実装済み（2026-07-19、M23）**: `@banto/grid-svelte` の
+  `columnsFromSchema(schema, { overrides })`（`src/core/schema.ts`）。
+  フォームと同一のルール・同一メッセージのバリデータ込みで列を導出し、
+  幅・フォーマット等は `overrides` で微調整する。items 一覧
+  （`routes/(app)/items/+page.svelte`）が利用手本。
 
 ### 3.2 データプロバイダ
 
