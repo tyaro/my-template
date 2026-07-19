@@ -20,6 +20,12 @@
 
 ## [Unreleased]
 
+- P4-1: `FilterPopover` の dismiss 挙動テストを追加（`@banto/grid-svelte`、
+  9件）。実装精査の結果 Tab 巡回型フォーカストラップではなく「Escape /
+  外側 pointerdown で閉じる」dismiss 型と判明したため、その実挙動
+  （dialog 意味論・apply/clear/Enter 含む）を固定。improvements.md §8 の
+  記述も実態に訂正
+
 - fix(backup): `BackupService::create` の `created_at` を、生成した
   ファイルの mtime（`list()` と同一の取得源）から算出するよう修正。
   従来は `datetime('now')` 由来で、`VACUUM INTO` が秒境界をまたぐと
