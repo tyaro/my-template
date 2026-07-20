@@ -20,6 +20,12 @@
 
 ## [Unreleased]
 
+- P4-2: 仮想スクロールの計測ベンチを追加（`@banto/grid-svelte`、
+  `pnpm bench`）。per-frame 処理（`computeWindow` + 可視ウィンドウ slice）が
+  総行数に依存しないこと（10k/100k でほぼ同一）を実証し、sort/filter の
+  総行数依存コストも計測。vitest bench でホットパスを計測する方式（ブラウザ
+  FPS ではなく決定的・CI 非ゲート・依存追加なし）。代表結果はベンチ冒頭に常設
+
 - P4-3: README LAN 節に「同時書き込みとSQLite（WAL）」節を追加。
   デスクトップ + 組み込みサーバは同一プロセス・単一プール共有で書き込みが
   シリアライズされ、DB は WAL モードで開くこと（別プロセスからの同時
