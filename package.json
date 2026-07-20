@@ -24,7 +24,8 @@
     "lint": "eslint .",
     "verify:architecture": "node scripts/verify-architecture.mjs",
     "e2e": "playwright test --config=e2e/playwright.config.ts --project=chromium",
-    "e2e:visual": "playwright test --config=e2e/playwright.config.ts --project=visual"
+    "e2e:visual": "playwright test --config=e2e/playwright.config.ts --project=visual",
+    "bench": "pnpm --filter @banto/grid-svelte bench"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.12.1",

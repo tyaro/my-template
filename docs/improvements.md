@@ -256,10 +256,14 @@ i18nは[template-scope.md](template-scope.md) §4.3で
 
 ## 9. パフォーマンス・運用性（優先度: 低）
 
-- 仕様 §4.2 のパフォーマンス目標（仮想スクロール）に対する
-  **計測ベンチがない**。10万行での fps/初期描画を計測する簡易ベンチページ
-  （既存の items ページ + 行数パラメータで足りる）と、結果の記録を推奨
-  （improvement-plan P4-2）。
+- ~~仕様 §4.2 のパフォーマンス目標（仮想スクロール）に対する計測ベンチが
+  ない~~ → **対応済み（2026-07-19、P4-2）**。ブラウザ FPS（非決定的・CI 不可）
+  ではなく、仮想化のホットパスを vitest bench で計測
+  （`packages/grid-svelte/tests/virtual.bench.ts`、`pnpm bench` で実行）。
+  per-frame 処理（`computeWindow` + 可視ウィンドウ slice）が総行数に依存
+  しない（10k と 100k でほぼ同一 ≈0.0002ms/frame）ことを実証し、
+  sort/filter の総行数依存コスト（100k で sort ~235ms・filter ~32ms）も
+  記録。代表結果と読み方はベンチ冒頭コメントに常設。
 - `banto-server` にログ基盤がない場合、`tracing` + `tower-http::trace` の
   導入を検討（LAN サーバのトラブルシュートで効く）。
 - ~~SQLite の書き込み競合（Tauri ウィンドウ + LAN クライアント同時書き込み）の
@@ -282,7 +286,8 @@ i18nは[template-scope.md](template-scope.md) §4.3で
 - **§5.2**: 既存ファイルの改行コード一括正規化（`--renormalize`）
 - **§6.1**: PostgreSQL リポジトリ実装（実需ドリブン、P4-5）
 - **§7**: npm公開準備一式（公開する場合のみ。現状は非公開方針）
-- **§9**: 仮想スクロールの計測ベンチ（P4-2）・ログ基盤（tracing）
+- **§9**: ログ基盤（tracing）の導入検討（LAN サーバのトラブルシュート用。
+  依存を足さない方針との兼ね合いで保留）
 
 着手順の推奨・優先度付けは [improvement-plan-2026-07.md](improvement-plan-2026-07.md)
 が一次情報（本書の「優先度サマリ」節は全項目対応済みとなったため
