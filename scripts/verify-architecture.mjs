@@ -15,6 +15,9 @@
  *      … packages（theme を除く）の .svelte <style> ブロックに hex/rgb()/hsl()
  *        がない（コメントは除去してから検査。許可リストは理由付きで下記）
  *   6. §4 パッケージの dependencies / peerDependencies は空
+ *   7. ドキュメント整合性: docs/・README・AGENTS・CLAUDE の `@banto/*` 参照が
+ *      実在パッケージのみ（conventions の不変条件ではなくドキュメントと実装の
+ *      ドリフト対策。実在しない `@banto/grid-core` 等の掲載を防ぐ）
  *
  * 許可リストへの追加は「設計判断としてコード内コメントで正当化されている」
  * ことを条件とし、理由をここに1行で書く（レビュー対象）。
@@ -174,6 +177,46 @@ const read = (rel) => fs.readFileSync(path.join(repoRoot, rel), 'utf8');
 	}
 	if (!results.some((r) => r.includes(`[${rule}]`)))
 		pass(rule, '全パッケージの dependencies/peerDependencies が空');
+}
+
+// --- 7. docs 内の @banto/* 参照は実在パッケージのみ（ドキュメント整合性） ----
+
+{
+	const rule = 'docs-package-refs';
+	// 実在パッケージ名は packages/*/package.json から動的取得（追加/改名に自動追従）。
+	const realPackages = new Set();
+	for (const dir of fs.readdirSync(path.join(repoRoot, 'packages'))) {
+		const rel = `packages/${dir}/package.json`;
+		if (!fs.existsSync(path.join(repoRoot, rel))) continue;
+		realPackages.add(JSON.parse(read(rel)).name);
+	}
+	// 「存在しないパッケージ」を意図的にスコープ付きで名指しする場合のみ許可（理由付き）。
+	// 現状なし（作らないと決めた grid-core/dock-core はスコープ無しで書くこと）。
+	const DOCS_PACKAGE_REF_ALLOWLIST = new Set([]);
+	const docFiles = [
+		'README.md',
+		'README.en.md',
+		'AGENTS.md',
+		'CLAUDE.md',
+		...walk('docs', ['.md'])
+	];
+	let checkedRefs = 0;
+	for (const file of docFiles) {
+		if (!fs.existsSync(path.join(repoRoot, file))) continue;
+		const src = read(file);
+		for (const m of src.matchAll(/@banto\/[a-z0-9-]+/g)) {
+			const ref = m[0];
+			checkedRefs++;
+			if (realPackages.has(ref) || DOCS_PACKAGE_REF_ALLOWLIST.has(ref)) continue;
+			fail(
+				rule,
+				file,
+				`実在しないパッケージ参照 \`${ref}\` — packages/ に無い。存在しないことを述べたいならスコープ無し（例: \`grid-core\`）で書くか、意図的なら許可リストへ理由付きで追加`
+			);
+		}
+	}
+	if (!results.some((r) => r.includes(`[${rule}]`)))
+		pass(rule, `docs/README/AGENTS/CLAUDE の @banto/* 参照 ${checkedRefs} 件すべて実在`);
 }
 
 // --- 結果 -------------------------------------------------------------------
