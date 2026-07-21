@@ -102,6 +102,11 @@ CI の frontend ジョブで強制）が検査する。対象は各節に **[機
 自前実装（§3 の表）を予防的に置き換えることはしない — 各実装が上記に
 実際に該当し始めた時点で個別に判断する。
 
+個別の「足すか否か」の保留判断は ADR に残す（代替案比較込み）:
+**サーバログ（`tracing` を入れず `eprintln!`）は [ADR-0004](adr/0004-server-logging-eprintln.md)**、
+**LAN の TLS（rustls を入れずリバースプロキシ終端）は [ADR-0003](adr/0003-tls-via-reverse-proxy.md)**。
+いずれも「今は足さない・再検討条件つき」の Accepted。
+
 ## 4. コア → オプションの逆依存禁止 [機械検査済み]
 
 コア（`admin-core` / `grid-svelte` / `forms` / `theme`）は

@@ -20,6 +20,16 @@
 
 ## [Unreleased]
 
+- docs: v2 検討事項の決着とドキュメント棚卸し。TLS 本体（組み込み rustls）と
+  サーバログ（`tracing`）は、いずれも conventions §3 が退けた依存追加のため
+  実装ではなく ADR で決定を記録（[ADR-0003](docs/adr/0003-tls-via-reverse-proxy.md)
+  リバースプロキシ終端を正式・組み込み TLS は保留、
+  [ADR-0004](docs/adr/0004-server-logging-eprintln.md) `eprintln!` 継続・
+  `tracing` は保留）。あわせて improvements.md の「まとめ」から完了済み項目
+  （Dependabot/コンポーネントテスト）を除去、改行正規化を実質完了（CRLF 0件）と
+  確認、spec §6.1/§6.3 の陳腐化した「v2以降」注記（複合/レーダー/ヒートマップ/
+  ゲージ・SVGエクスポート＝M13/M22 で実装済み）を訂正
+
 - P4-2: 仮想スクロールの計測ベンチを追加（`@banto/grid-svelte`、
   `pnpm bench`）。per-frame 処理（`computeWindow` + 可視ウィンドウ slice）が
   総行数に依存しないこと（10k/100k でほぼ同一）を実証し、sort/filter の
