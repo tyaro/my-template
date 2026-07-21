@@ -20,6 +20,12 @@
 
 ## [Unreleased]
 
+- ci/docs: `verify:architecture` に「ドキュメント整合性」ルール（rule 7）を追加。
+  `docs/`・README・AGENTS・CLAUDE 内の `@banto/*` 参照が実在パッケージのみで
+  あることを機械検査し、実在しない `@banto/grid-core` 等の掲載（今回修正した
+  ドリフト）を CI で防ぐ。実在パッケージ名は `packages/*/package.json` から
+  動的取得するため追加/改名に自動追従。依存追加なし（Node 標準のみ）
+
 - docs: ドキュメントと実装の不整合を修正。(1) ui-framework-spec §2.1 の対象
   パッケージ表から実在しない `@banto/grid-core`/`@banto/dock-core` を除去し、
   ヘッドレスロジックは各 `-svelte` パッケージ内 `src/core/` に内包（§14 決着）と
