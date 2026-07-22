@@ -1258,13 +1258,16 @@ async fn audit_log_list(
     state.audit.list(params).await
 }
 
-/// Current audit-log retention policy (spec M14 Phase B). Any authenticated
-/// role may read this (same rationale as `auth_config_get`: it only feeds a
-/// settings-screen display) - only `audit_config_apply` below is
-/// `admin`-only.
+/// Current audit-log retention policy (spec M14 Phase B). `admin`-only, to
+/// mirror REST's `GET /api/audit-log/config` (guarded by the same
+/// `RoleGuard { min: Role::Admin }` as the rest of `audit_log_router`). The
+/// two paths MUST require the same role floor (conventions §1) - unlike
+/// `auth_config_get`, which is desktop-only (no REST counterpart) and so may
+/// stay viewer-readable. This symmetry is enforced by `verify:architecture`
+/// rule 8 role-floor (CR-6).
 #[tauri::command]
 async fn audit_config_get(state: State<'_, AppState>) -> Result<AuditSettings, BantoError> {
-    require_role(&state, Role::Viewer, "settings").await?;
+    require_role(&state, Role::Admin, "settings").await?;
     state.settings.audit_config().await
 }
 
