@@ -1745,9 +1745,12 @@ async fn items_export_csv_to_folder(
         .and_then(|s| s.to_str())
         .filter(|s| !s.is_empty())
         .ok_or_else(|| BantoError::Other("invalid file name".into()))?;
+    // Self-heal: recreate `exports/` if it was removed since startup (user
+    // deleted it, or a data dir predating this feature) so a missing folder
+    // never silently drops the export - the "folder-missing fallback".
+    std::fs::create_dir_all(&state.exports_dir).map_err(|e| BantoError::Other(e.to_string()))?;
     let file_path = state.exports_dir.join(safe);
-    std::fs::write(&file_path, content.as_bytes())
-        .map_err(|e| BantoError::Other(e.to_string()))?;
+    std::fs::write(&file_path, content.as_bytes()).map_err(|e| BantoError::Other(e.to_string()))?;
     let path = file_path.display().to_string();
 
     #[cfg(target_os = "windows")]

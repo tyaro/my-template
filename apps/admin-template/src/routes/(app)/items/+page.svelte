@@ -294,11 +294,15 @@
 				// "no native save dialog in v1" fallback as
 				// `openBackupsFolder`/backups' folder UX.
 				const folderResult = await exportCsvToFolder(csv, filename);
-				if (folderResult.opened) {
-					notify('success', `${result.rows.length}件をエクスポートしました`);
-				} else {
-					notify('info', `このOSでは非対応です。手動で開いてください: ${folderResult.path}`);
-				}
+				// Always show the saved path (the folder opens on success, but
+				// the toast makes the location explicit so the file is never
+				// "missing"). `opened: false` = non-Windows, where no folder opens.
+				notify(
+					'success',
+					folderResult.opened
+						? `${result.rows.length}件をエクスポートしました: ${folderResult.path}`
+						: `${result.rows.length}件をエクスポートしました（${folderResult.path}）`
+				);
 			} else {
 				downloadTextFile(csv, filename, 'text/csv;charset=utf-8');
 				notify('success', `${result.rows.length}件をエクスポートしました`);
