@@ -26,10 +26,12 @@
 	import { canWriteResources } from '$lib/permissions';
 	import {
 		DEMO_MODE_MESSAGE as ITEMS_IMPORT_DEMO_MESSAGE,
+		exportCsvToFolder,
 		importItems,
 		isItemsImportAvailable,
 		type ItemImportRow
 	} from '$lib/banto/itemsAdmin';
+	import { getBantoMode } from '$lib/banto/setup';
 	import PageHeader from '$lib/components/ui/PageHeader.svelte';
 	import StatusBadge, { type StatusBadgeVariant } from '$lib/components/ui/StatusBadge.svelte';
 	import ItemsClientGrid, { type ItemRow } from './ItemsClientGrid.svelte';
@@ -284,8 +286,23 @@
 				filters
 			});
 			const csv = csvForExcel(toCsv(csvColumns, result.rows));
-			downloadTextFile(csv, csvFilename('items'), 'text/csv;charset=utf-8');
-			notify('success', `${result.rows.length}件をエクスポートしました`);
+			const filename = csvFilename('items');
+			if (getBantoMode() === 'tauri') {
+				// Desktop (finding⑤ Option A): WebView2 has no visible save
+				// dialog for `<a download>`, so write into the app's
+				// `exports/` folder and reveal it in Explorer instead - same
+				// "no native save dialog in v1" fallback as
+				// `openBackupsFolder`/backups' folder UX.
+				const folderResult = await exportCsvToFolder(csv, filename);
+				if (folderResult.opened) {
+					notify('success', `${result.rows.length}件をエクスポートしました`);
+				} else {
+					notify('info', `このOSでは非対応です。手動で開いてください: ${folderResult.path}`);
+				}
+			} else {
+				downloadTextFile(csv, filename, 'text/csv;charset=utf-8');
+				notify('success', `${result.rows.length}件をエクスポートしました`);
+			}
 		} catch (err) {
 			notify('error', isProviderError(err) ? err.message : String(err));
 		} finally {
