@@ -17,8 +17,11 @@ PR-C Tauri CSP（#83）/ ⑤ デスクトップ CSV エクスポート（#84）/
 採用性（#85）/ v0.1.1 マニフェスト整合（#86）/ CHANGELOG `[Unreleased]` 整理（#87）/
 **0.1.2 リリース bump + CHANGELOG 切り出し（#88）**。加えて **v0.1.1 GitHub Release 作成**・
 **リポジトリの Template 化 + description/topics 付与**・**v0.1.2 タグ + GitHub Release 作成
-（Latest）**。実機 Windows で `tauri build` が通ることも確認済み。⑥ embed-ui は仕様どおり
-（対応不要）。SECURITY/CONTRIBUTING はオーナー判断で見送り。
+（Latest）**。加えて **⑥ embed-ui + LAN 実機スモーク合格**（`banto-serve --features embed-ui` を
+Browser ペインで検証、⑤ の両経路宿題を完了）・**AD-2 ライブデモ公開（#89）**: base-path 対応
+（`BASE_PATH` 既定 `''` で Tauri/LAN 不変）+ GitHub Pages ワークフロー → **<https://tyaro.github.io/banto/>
+で公開・稼働中**（InMemory デモ・admin/admin）。実機 Windows で `tauri build` が通ることも確認済み。
+⑥ embed-ui は仕様どおり（`--features embed-ui` 前提）。SECURITY/CONTRIBUTING はオーナー判断で見送り。
 
 ---
 
@@ -35,7 +38,7 @@ PR-C Tauri CSP（#83）/ ⑤ デスクトップ CSV エクスポート（#84）/
 | **PostgreSQL リポジトリ実装**（`postgres.rs`） | feature 定義のみ・未実装 | [improvement-plan P4-5](improvement-plan-2026-07.md)、[ui-framework-spec §12.1](ui-framework-spec.md)。既定 SQLite 維持 |
 | **コピー面積縮小**（`admin-template-core` → `banto-admin-services` 化 / Tauri コマンドのマクロ化） | 方針記録のみ・未実施 | [template-scope §7](template-scope.md)。トリガ: banto-industrial 要求 / 2本目アプリ / **外部採用者フィードバック**（AD-4 で追加済み） |
 | **スキャフォールド・プリセット**（minimal/standard/full 生成） | 設計のみ完了・実装未着手 | [scaffold-presets-plan](scaffold-presets-plan.md)（P4-9）。P2-1 v2（対話式 CLI）の土台待ち |
-| **AD-2 発展案**（ライブデモ公開 / 短尺 GIF） | 未着手（規模 M） | [adoption-plan AD-2](adoption-plan-2026-07.md)。最小案（スクショ）は #85 で完了 |
+| **AD-2 発展案**（短尺 GIF / LAN QR デモ） | ライブデモは **✅ 公開済み**（#89、<https://tyaro.github.io/banto/>）。残るは短尺 GIF・LAN 配信の QR デモ | [adoption-plan AD-2](adoption-plan-2026-07.md)。最小案（スクショ）は #85、ライブデモは #89 で完了 |
 | **tracing 導入** | 保留（`eprintln!` 継続） | [ADR-0004](adr/0004-server-logging-eprintln.md) |
 | **CR-3**（依存追加検出を crate/app に拡張） | 実需ドリブンで見送り | [maintainability-review §4.1](maintainability-review-2026-07.md) |
 | **GitHub Packages 公開** | 棚上げ（`publishConfig` は残置） | [publishing](publishing.md) |
