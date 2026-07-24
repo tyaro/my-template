@@ -14,9 +14,11 @@
 
 `main` にマージ済み: P0 3件（#77/#78/#79）/ AD-6 レイヤ①（#81）/ AD-4（#82）/
 PR-C Tauri CSP（#83）/ ⑤ デスクトップ CSV エクスポート（#84）/ AD-1・AD-2 README
-採用性（#85）/ v0.1.1 マニフェスト整合（#86）。加えて **v0.1.1 GitHub Release 作成**・
-**リポジトリの Template 化 + description/topics 付与**。実機 Windows で `tauri build`
-が通ることも確認済み。⑥ embed-ui は仕様どおり（対応不要）。
+採用性（#85）/ v0.1.1 マニフェスト整合（#86）/ CHANGELOG `[Unreleased]` 整理（#87）/
+**0.1.2 リリース bump + CHANGELOG 切り出し（#88）**。加えて **v0.1.1 GitHub Release 作成**・
+**リポジトリの Template 化 + description/topics 付与**・**v0.1.2 タグ + GitHub Release 作成
+（Latest）**。実機 Windows で `tauri build` が通ることも確認済み。⑥ embed-ui は仕様どおり
+（対応不要）。SECURITY/CONTRIBUTING はオーナー判断で見送り。
 
 ---
 
@@ -47,15 +49,22 @@ PR-C Tauri CSP（#83）/ ⑤ デスクトップ CSV エクスポート（#84）/
 | **OG ソーシャル画像** | GitHub Settings → Social preview から手動アップロード（CLI 不可）。素材は `docs/assets/dashboard-*.png` 流用可 | AD-3 |
 | **i18n レイヤ②着手可否** | §1 の未決5点を決める（既定は着手しない＝後回し、2026-07-23 オーナー指示） | [i18n-plan §6.1](i18n-plan.md) |
 | **SECURITY.md / CONTRIBUTING** | **見送り確定**（2026-07-23 オーナー判断。必要になれば作成） | handoff §4.5 |
-| **次リリースの版番号** | `[Unreleased]` を束ねる次リリースを 0.1.2（patch）か 0.2.0（minor）か決める | [publishing タグ運用規約](publishing.md) |
+| ~~**次リリースの版番号**~~ | **✅ 済み: 0.1.2（patch）に決定・リリース済み**（#88 / v0.1.2 タグ + Release）。次回はまた版番号判断が要る | [publishing タグ運用規約](publishing.md) |
 
-## 3. 次の正規リリース準備（0.1.2 / 0.2.0）
+## 3. リリース工程（0.1.2 は完了・以降の手順テンプレ）
 
-`main` は v0.1.1 から大きく先行（M19〜M24 + 2026-07-23 セッションの #77〜#86）。次リリース時に:
+**✅ 0.1.2 リリース済み**（2026-07-23）: `[Unreleased]` の整理（#87）→ マニフェスト 0.1.2 bump +
+CHANGELOG 切り出し（#88）→ `v0.1.2` タグ + GitHub Release（Latest）。CR-7 タグモードで整合確認済み。
 
-1. **CHANGELOG `[Unreleased]` の整理** — 現状 M19〜M24 は入っているが、**#77〜#86（P0・AD-6①・PR-C・CSV エクスポート・AD-1/2・版整合）が未追記**。リリース前に追記して束ねる。
-2. マニフェスト版 bump（[check-versions.mjs](../scripts/check-versions.mjs) の正準集合）→ CHANGELOG に新版節を切る → タグ付け（`vX.Y.Z`）→ CR-7 **タグモード**で照合（`node scripts/check-versions.mjs --tag vX.Y.Z`）→ GitHub Release 作成。
-3. `src-tauri` の署名・updater は「レシピ化・実需ドリブン」（テンプレは採用者の代わりに署名できない、handoff §7）。
+**次回リリースの手順**（同じ流れを踏襲）:
+
+1. **CHANGELOG `[Unreleased]` の整理** — マージした PR を task/PR 単位で追記（PR ごと 1 行の運用規約）。
+2. 版番号をオーナー判断（0.x: `patch`=追加・修正 / `minor`=破壊的変更）→ マニフェスト bump
+   （[check-versions.mjs](../scripts/check-versions.mjs) の正準集合）→ CHANGELOG に新版節を切る → PR。
+3. マージ後に `vX.Y.Z` タグ付け → CR-7 **タグモード**で照合（`node scripts/check-versions.mjs --tag vX.Y.Z`）→
+   `gh release create vX.Y.Z --notes-file <[X.Y.Z]節> --latest --verify-tag`（**タグは先に作成・push**、
+   `--target <shortSHA>` は不可）。
+4. `src-tauri` の署名・updater は「レシピ化・実需ドリブン」（テンプレは採用者の代わりに署名できない、handoff §7）。
 
 ## 4. 非スコープ確定（＝やらない方針。念のため）
 
